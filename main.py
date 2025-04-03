@@ -13,7 +13,7 @@ API_ID = "21705536"
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
 BOT_TOKEN = "8193765546:AAEs_Ul-zoQKAto5-I8vYJpGSZgDEa-POeU"
 CHANNEL_USERNAME = "@kuvnypkyjk"
-DEFAULT_THUMBNAIL = "https://i.imgur.com/JxLr5qU.png"
+DEFAULT_THUMBNAIL = "https://i.postimg.cc/4N69wBLt/hat-hacker.webp"
 SECRET_KEY = "khvhgfnkjfdsbjuhb"
 
 # ===== BOT SETUP =====
