@@ -11,7 +11,7 @@ API_ID = "21705536"
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
 BOT_TOKEN = "8193765546:AAEs_Ul-zoQKAto5-I8vYJpGSZgDEa-POeU"
 DEFAULT_THUMBNAIL = "https://i.postimg.cc/4N69wBLt/hat-hacker.webp"
-SECRET_KEY = "change_this_to_a_strong_random_string"  # IMPORTANT: Change this!
+SECRET_KEY = "kfskjhfsdcnnsfsncnsdk"  # IMPORTANT: Change this!
 
 app = Client("secure_html_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
