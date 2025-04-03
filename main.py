@@ -88,7 +88,6 @@ def generate_html(file_name, videos, pdfs, others, user_id, user_token, browser_
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{escaped_base_name}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet">
     <style>
         body {{
             font-family: Arial, sans-serif;
@@ -196,18 +195,21 @@ def generate_html(file_name, videos, pdfs, others, user_id, user_token, browser_
     <script>
         // Authentication data
         const USER_ID = "{user_id}";
-        const USER_TOKEN = "{user_token}";
         const BROWSER_TOKEN = "{browser_token}";
         const EXPIRY_DAYS = 7;
         
         // Check Telegram authentication
         function checkTelegramAuth() {{
-            if (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user && Telegram.WebApp.initDataUnsafe.user.id && Telegram.WebApp.initDataUnsafe.user.id.toString() === USER_ID) {{
-                localStorage.setItem('tg_verified', 'true');
-                localStorage.setItem('tg_user_id', USER_ID);
-                localStorage.setItem('browser_token', BROWSER_TOKEN);
-                localStorage.setItem('token_expiry', Date.now() + (EXPIRY_DAYS * 24 * 60 * 60 * 1000));
-                return true;
+            try {{
+                if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() === USER_ID) {{
+                    localStorage.setItem('tg_verified', 'true');
+                    localStorage.setItem('tg_user_id', USER_ID);
+                    localStorage.setItem('browser_token', BROWSER_TOKEN);
+                    localStorage.setItem('token_expiry', Date.now() + (EXPIRY_DAYS * 24 * 60 * 60 * 1000));
+                    return true;
+                }}
+            }} catch (e) {{
+                console.log('Telegram auth error:', e);
             }}
             return false;
         }}
@@ -225,15 +227,20 @@ def generate_html(file_name, videos, pdfs, others, user_id, user_token, browser_
             }}
             
             // Check localStorage
-            const storedToken = localStorage.getItem('browser_token');
-            const storedExpiry = localStorage.getItem('token_expiry');
-            const storedUserId = localStorage.getItem('tg_user_id');
-            const isVerified = localStorage.getItem('tg_verified');
-            
-            return isVerified === 'true' && 
-                   storedUserId === USER_ID && 
-                   storedToken === BROWSER_TOKEN &&
-                   storedExpiry && parseInt(storedExpiry) > Date.now();
+            try {{
+                const storedToken = localStorage.getItem('browser_token');
+                const storedExpiry = localStorage.getItem('token_expiry');
+                const storedUserId = localStorage.getItem('tg_user_id');
+                const isVerified = localStorage.getItem('tg_verified');
+                
+                return isVerified === 'true' && 
+                       storedUserId === USER_ID && 
+                       storedToken === BROWSER_TOKEN &&
+                       storedExpiry && parseInt(storedExpiry) > Date.now();
+            }} catch (e) {{
+                console.log('LocalStorage error:', e);
+                return false;
+            }}
         }}
         
         // Copy browser access link
@@ -259,7 +266,6 @@ def generate_html(file_name, videos, pdfs, others, user_id, user_token, browser_
                 window.open(url, '_blank');
             }} else {{
                 alert('Would play video: ' + url);
-                // Implement your video player here
             }}
         }}
         
@@ -270,8 +276,6 @@ def generate_html(file_name, videos, pdfs, others, user_id, user_token, browser_
                 document.getElementById('content').style.display = 'block';
                 document.getElementById('verified-msg').style.display = 'block';
                 document.getElementById('browser-access').style.display = 'block';
-            }} else {{
-                document.getElementById('auth-container').style.display = 'block';
             }}
         }});
     </script>
@@ -339,14 +343,6 @@ async def document_handler(client: Client, message: Message):
                 InlineKeyboardButton("🔄 New Token", callback_data=f"new_token_{user_id}")
             ]])
         )
-        
-        # Forward to channel
-        if CHANNEL_USERNAME:
-            await client.send_document(
-                chat_id=CHANNEL_USERNAME,
-                document=html_path,
-                caption=f"HTML file generated for {user_name} ({user_id})"
-            )
             
     except Exception as e:
         await message.reply_text(f"❌ Error processing file: {str(e)}")
