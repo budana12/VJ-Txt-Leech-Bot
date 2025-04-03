@@ -29,7 +29,7 @@ async def get_user_details(client: Client, message: Message):
         "🚫 Fake": "Yes" if user.is_fake else "No"
     }
     
-    # Try to get more sensitive details (may be hidden by privacy settings)
+    # Try to get more sensitive details
     try:
         full_user = await client.get_users(user.id)
         more_details = {
@@ -51,6 +51,6 @@ async def get_user_details(client: Client, message: Message):
         if value and str(value).lower() not in ["none", "hidden", "unknown", "not set"]:
             details_message += f"• <b>{key}:</b> {value}\n"
     
-    await message.reply_text(details_message, parse_mode="html")
+    await message.reply_text(details_message, parse_mode="HTML")  # Changed to uppercase
 
 app.run()
