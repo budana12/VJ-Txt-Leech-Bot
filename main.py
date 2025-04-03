@@ -1,451 +1,403 @@
 import os
-import mmap
-import time
-import logging
 import requests
-import asyncio
+import hashlib
 from pyrogram import Client, filters
-from pyrogram.types import Message
-from pyrogram.errors import FloodWait
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from requests.exceptions import RequestException, Timeout, ConnectionError
-import aiohttp
-import aiofiles
-from tqdm import tqdm
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from datetime import datetime
+import secrets
+import html
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-# Bot configuration
-API_ID = 21705536
+# ===== CONFIGURATION =====
+API_ID = "21705536"
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
-BOT_TOKEN = "7480080731:AAHJ3jgh7npoAJSZ0tiB2n0bqSY0sp5E4gk"
+BOT_TOKEN = "8193765546:AAEs_Ul-zoQKAto5-I8vYJpGSZgDEa-POeU"
+CHANNEL_USERNAME = "@kuvnypkyjk"
+DEFAULT_THUMBNAIL = "https://i.imgur.com/JxLr5qU.png"
+SECRET_KEY = "khvhgfnkjfdsbjuhb"
 
-# Constants
-MAX_FILE_SIZE = 2000 * 1024 * 1024  # 2GB Telegram limit
-SUPPORTED_VIDEO_EXTENSIONS = ['mp4', 'mkv', 'mov', 'avi', 'webm']
-SUPPORTED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt']
-CHUNK_SIZE = 1024 * 1024  # 1MB chunks for better memory management
-DOWNLOAD_TIMEOUT = 300  # 5 minutes timeout
-MAX_RETRIES = 5
+# ===== BOT SETUP =====
+app = Client("html_generator_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Customize these as needed
-CR = "𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚"
-my_name = "𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚"
+# ===== UTILITY FUNCTIONS =====
+def generate_user_token(user_id):
+    return hashlib.sha256(f"{user_id}{SECRET_KEY}".encode()).hexdigest()
 
-# Initialize the Pyrogram client
-app = Client("file_decryptor_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+def generate_browser_token():
+    return secrets.token_urlsafe(32)
 
-# Global variables to store user data
-user_data = {}
-stop_flags = {}
+def extract_names_and_urls(file_content):
+    lines = file_content.strip().split("\n")
+    data = []
+    for line in lines:
+        if ":" in line:
+            name, url = line.split(":", 1)
+            data.append((name.strip(), url.strip()))
+    return data
 
-async def download_file_async(url, save_path, progress_callback=None):
-    """Asynchronous file download with progress tracking"""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
+def categorize_urls(urls):
+    videos, pdfs, others = [], [], []
     
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, timeout=DOWNLOAD_TIMEOUT) as response:
-                if response.status != 200:
-                    raise Exception(f"HTTP {response.status}: {response.reason}")
-                
-                total_size = int(response.headers.get('content-length', 0))
-                if total_size > MAX_FILE_SIZE:
-                    raise ValueError("File too large for Telegram upload")
-                
-                block_size = CHUNK_SIZE
-                downloaded = 0
-                
-                async with aiofiles.open(save_path, 'wb') as f:
-                    async for chunk in response.content.iter_chunked(block_size):
-                        if chunk:
-                            await f.write(chunk)
-                            downloaded += len(chunk)
-                            if progress_callback:
-                                await progress_callback(downloaded, total_size)
-                
-                return True
-    except Exception as e:
-        logger.error(f"Error during async download: {e}")
-        raise
-
-@retry(
-    stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
-    retry=retry_if_exception_type((RequestException, Timeout, ConnectionError))
-)
-async def download_with_retry(url, save_path, progress_callback=None):
-    """Wrapper for download_file_async with retry logic"""
-    try:
-        return await download_file_async(url, save_path, progress_callback)
-    except Exception as e:
-        logger.error(f"Download attempt failed: {e}")
-        raise
-
-def extract_url_info(line):
-    """Extract video name, url and key from a line with validation"""
-    if not line:
-        return None, None, None
+    for name, url in urls:
+        if any(ext in url.lower() for ext in ['.m3u8', '.mp4', '.mkv', '.webm', '.avi', '.mov', '.wmv', '.flv', '.mpeg', '.mpd']):
+            videos.append((name, url))
+        elif 'youtube.com' in url or 'youtu.be' in url:
+            videos.append((name, url))
+        elif 'classplusapp.com' in url or 'testbook.com' in url:
+            videos.append((name, f"https://dragoapi.vercel.app/video/{url}"))
+        elif '.pdf' in url.lower():
+            pdfs.append((name, url))
+        elif '.zip' in url.lower():
+            videos.append((name, f"https://video.pablocoder.eu.org/appx-zip?url={url}"))
+        else:
+            others.append((name, url))
     
-    try:
-        # Split on first 'http' occurrence
-        parts = line.split('http', 1)
-        video_name = parts[0].strip(' :')  # Clean name
-        url_part = 'http' + parts[1].strip() if len(parts) > 1 else None
-        
-        if not url_part:
-            return None, None, None
-        
-        # Validate URL structure
-        parsed = requests.utils.urlparse(url_part.split('*')[0])
-        if not all([parsed.scheme, parsed.netloc]):
-            return None, None, None
-        
-        # Extract key if exists
-        if '*' in url_part:
-            base_url, key = url_part.split('*', 1)
-            return video_name, base_url.strip(), key.strip()
-        
-        return video_name, url_part.strip(), None
-        
-    except Exception as e:
-        logger.error(f"Error parsing line: {e}")
-        return None, None, None
+    return videos, pdfs, others
 
-def decrypt_file(file_path, key):
-    """Improved decryption function with better error handling"""
-    if not os.path.exists(file_path):
-        logger.error("Encrypted file not found!")
-        return False
+def generate_html(file_name, videos, pdfs, others, user_id, user_token, browser_token):
+    base_name = os.path.splitext(file_name)[0]
+    escaped_base_name = html.escape(base_name)
     
-    try:
-        logger.info(f"Decrypting file: {file_path} with key: {key}")
-        file_size = os.path.getsize(file_path)
+    # Generate video links HTML
+    video_links = []
+    for name, url in videos:
+        escaped_name = html.escape(name)
+        escaped_url = html.escape(url)
+        video_links.append(f'<a href="#" onclick="playVideo(\'{escaped_url}\')">{escaped_name}</a>')
+    video_links_html = "".join(video_links)
+    
+    # Generate PDF links HTML
+    pdf_links = []
+    for name, url in pdfs:
+        escaped_name = html.escape(name)
+        escaped_url = html.escape(url)
+        pdf_links.append(f'<a href="{escaped_url}" target="_blank">{escaped_name}</a>')
+    pdf_links_html = "".join(pdf_links)
+    
+    # Generate other links HTML
+    other_links = []
+    for name, url in others:
+        escaped_name = html.escape(name)
+        escaped_url = html.escape(url)
+        other_links.append(f'<a href="{escaped_url}" target="_blank">{escaped_name}</a>')
+    other_links_html = "".join(other_links)
+    
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{escaped_base_name}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet">
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f7fa;
+            text-align: center;
+        }}
+        .auth-container {{
+            max-width: 500px;
+            margin: 50px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }}
+        .telegram-btn {{
+            background: #0088cc;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 5px;
+            text-decoration: none;
+            display: inline-block;
+            margin: 15px 0;
+            font-weight: bold;
+        }}
+        .content {{
+            display: none;
+        }}
+        .verified-badge {{
+            color: #4CAF50;
+            margin-left: 5px;
+        }}
+        .tab {{
+            padding: 10px 15px;
+            margin: 5px;
+            background: #007bff;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            display: inline-block;
+        }}
+        .video-list a, .pdf-list a, .other-list a {{
+            display: block;
+            padding: 10px;
+            margin: 5px 0;
+            background: white;
+            border-radius: 5px;
+            text-decoration: none;
+            color: #007bff;
+        }}
+    </style>
+</head>
+<body>
+    <div id="auth-container" class="auth-container">
+        <h2>🔒 Secure Content Access</h2>
+        <div id="telegram-auth">
+            <p>Please open this file in Telegram first to verify your identity:</p>
+            <a href="https://t.me/{html.escape(app.me.username)}" class="telegram-btn">
+                <i class="fab fa-telegram"></i> Open in Telegram
+            </a>
+            <p id="verified-msg" style="display:none;">
+                <i class="fas fa-check-circle verified-badge"></i> Verified successfully!
+            </p>
+        </div>
+        <div id="browser-access" style="display:none; margin-top:20px;">
+            <h3>Browser Access Granted</h3>
+            <p>You can now access this content in any browser for 7 days</p>
+            <button onclick="copyAccessLink()" style="background:#007bff; color:white; border:none; padding:10px 15px; border-radius:5px; cursor:pointer;">
+                <i class="fas fa-copy"></i> Copy Browser Link
+            </button>
+        </div>
+    </div>
+
+    <div id="content" class="content">
+        <h1>{escaped_base_name}</h1>
+        <div class="tabs">
+            <div class="tab" onclick="showTab('videos')">Videos ({len(videos)})</div>
+            <div class="tab" onclick="showTab('pdfs')">PDFs ({len(pdfs)})</div>
+            <div class="tab" onclick="showTab('others')">Others ({len(others)})</div>
+        </div>
         
-        with open(file_path, "r+b") as f:
-            # Use memory-mapped file for better performance
-            with mmap.mmap(f.fileno(), length=file_size, access=mmap.ACCESS_WRITE) as mmapped_file:
-                # Process in chunks to handle large files
-                chunk_size = 1024 * 1024  # 1MB chunks
-                for offset in range(0, file_size, chunk_size):
-                    chunk_end = min(offset + chunk_size, file_size)
-                    for i in range(offset, chunk_end):
-                        mmapped_file[i] ^= ord(key[i % len(key)])
+        <div id="videos" class="tab-content">
+            <h2>Video Lectures</h2>
+            <div class="video-list">
+                {video_links_html}
+            </div>
+        </div>
         
-        logger.info("Decryption completed successfully!")
-        return True
-    except Exception as e:
-        logger.error(f"Error during decryption: {e}")
-        return False
+        <div id="pdfs" class="tab-content" style="display:none;">
+            <h2>PDF Documents</h2>
+            <div class="pdf-list">
+                {pdf_links_html}
+            </div>
+        </div>
+        
+        <div id="others" class="tab-content" style="display:none;">
+            <h2>Other Resources</h2>
+            <div class="other-list">
+                {other_links_html}
+            </div>
+        </div>
+    </div>
 
-def get_file_extension(url):
-    """Extract file extension from URL"""
-    filename = url.split('?')[0].split('#')[0].split('/')[-1]
-    if '.' in filename:
-        return filename.split('.')[-1].lower()
-    return None
+    <script>
+        // Authentication data
+        const USER_ID = "{user_id}";
+        const USER_TOKEN = "{user_token}";
+        const BROWSER_TOKEN = "{browser_token}";
+        const EXPIRY_DAYS = 7;
+        
+        // Check Telegram authentication
+        function checkTelegramAuth() {{
+            if (window.Telegram && Telegram.WebApp && Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user && Telegram.WebApp.initDataUnsafe.user.id && Telegram.WebApp.initDataUnsafe.user.id.toString() === USER_ID) {{
+                localStorage.setItem('tg_verified', 'true');
+                localStorage.setItem('tg_user_id', USER_ID);
+                localStorage.setItem('browser_token', BROWSER_TOKEN);
+                localStorage.setItem('token_expiry', Date.now() + (EXPIRY_DAYS * 24 * 60 * 60 * 1000));
+                return true;
+            }}
+            return false;
+        }}
+        
+        // Check existing valid authentication
+        function checkExistingAuth() {{
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlToken = urlParams.get('token');
+            
+            // Check URL token
+            if (urlToken === BROWSER_TOKEN) {{
+                localStorage.setItem('browser_token', BROWSER_TOKEN);
+                localStorage.setItem('token_expiry', Date.now() + (EXPIRY_DAYS * 24 * 60 * 60 * 1000));
+                return true;
+            }}
+            
+            // Check localStorage
+            const storedToken = localStorage.getItem('browser_token');
+            const storedExpiry = localStorage.getItem('token_expiry');
+            const storedUserId = localStorage.getItem('tg_user_id');
+            const isVerified = localStorage.getItem('tg_verified');
+            
+            return isVerified === 'true' && 
+                   storedUserId === USER_ID && 
+                   storedToken === BROWSER_TOKEN &&
+                   storedExpiry && parseInt(storedExpiry) > Date.now();
+        }}
+        
+        // Copy browser access link
+        function copyAccessLink() {{
+            const url = new URL(window.location.href);
+            url.searchParams.set('token', BROWSER_TOKEN);
+            navigator.clipboard.writeText(url.toString())
+                .then(() => alert('Browser access link copied!'))
+                .catch(() => alert('Failed to copy link'));
+        }}
+        
+        // Show content tab
+        function showTab(tabName) {{
+            document.querySelectorAll('.tab-content').forEach(el => {{
+                el.style.display = 'none';
+            }});
+            document.getElementById(tabName).style.display = 'block';
+        }}
+        
+        // Play video
+        function playVideo(url) {{
+            if (url.includes('youtube.com') || url.includes('youtu.be')) {{
+                window.open(url, '_blank');
+            }} else {{
+                alert('Would play video: ' + url);
+                // Implement your video player here
+            }}
+        }}
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {{
+            if (checkTelegramAuth() || checkExistingAuth()) {{
+                document.getElementById('auth-container').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+                document.getElementById('verified-msg').style.display = 'block';
+                document.getElementById('browser-access').style.display = 'block';
+            }} else {{
+                document.getElementById('auth-container').style.display = 'block';
+            }}
+        }});
+    </script>
+</body>
+</html>"""
+    return html_content
 
-def is_video_file(extension):
-    return extension in SUPPORTED_VIDEO_EXTENSIONS
-
-def is_document_file(extension):
-    return extension in SUPPORTED_DOCUMENT_EXTENSIONS
-
-def create_failure_message(item):
-    """Create a formatted failure message for a single item"""
-    message = "❌ Download Failed\n\n"
-    message += f"🔢 File Number: #{item['number']}\n"
-    message += f"📛 Name: {item['name'] or 'Unnamed'}\n"
-    message += f"🔗 URL: {item['url']}\n"
-    message += f"❗ Error: {item['error']}\n"
-    return message
-
+# ===== TELEGRAM HANDLERS =====
 @app.on_message(filters.command("start"))
-async def start_command(client: Client, message: Message):
+async def start_handler(client: Client, message: Message):
     await message.reply_text(
-        "👋 Hello! I'm a file download bot.\n\n"
-        "📁 Upload a .txt file containing your links in this format:\n\n"
-        "`Video Name:https://example.com/encrypted.mp4*mysecretkey`\n\n"
-        "Or simply:\n"
-        "`Video Name:https://example.com/file.mp4`\n\n"
-        "Each link should be on a new line. I'll process all valid links.\n\n"
-        "Commands:\n"
-        "/start - Show this message\n"
-        "/stop - Stop current processing"
+        "📁 Welcome to HTML Generator Bot!\n\n"
+        "Send me a .txt file with name:URL pairs to create a secure HTML file.\n\n"
+        f"Your User ID: <code>{message.from_user.id}</code>",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❓ Help", callback_data="help")]])
     )
 
-@app.on_message(filters.command("stop"))
-async def stop_command(client: Client, message: Message):
-    user_id = message.from_user.id
-    stop_flags[user_id] = True
-    await message.reply_text("🛑 Stopping current processing...")
-    logger.info(f"User {user_id} requested to stop processing")
-
 @app.on_message(filters.document)
-async def handle_txt_file(client: Client, message: Message):
-    if not message.document.file_name.endswith('.txt'):
-        await message.reply_text("❌ Please upload a .txt file containing your links.")
+async def document_handler(client: Client, message: Message):
+    if not message.document.file_name.endswith(".txt"):
+        await message.reply_text("❌ Please upload a .txt file with name:URL pairs.")
         return
     
-    user_id = message.from_user.id
-    stop_flags[user_id] = False  # Reset stop flag
+    user = message.from_user
+    user_id = user.id
+    user_name = user.first_name
+    if user.username:
+        user_name = f"@{user.username}"
     
-    status_msg = await message.reply_text("📥 Downloading your text file...")
+    # Generate tokens
+    user_token = generate_user_token(user_id)
+    browser_token = generate_browser_token()
     
+    # Download and process file
+    file_path = await message.download()
+    html_path = ""
     try:
-        # Download the text file
-        temp_dir = "temp_files"
-        os.makedirs(temp_dir, exist_ok=True)
-        txt_path = os.path.join(temp_dir, f"links_{user_id}.txt")
+        with open(file_path, "r", encoding='utf-8') as f:
+            content = f.read()
         
-        await message.download(file_name=txt_path)
+        urls = extract_names_and_urls(content)
+        videos, pdfs, others = categorize_urls(urls)
         
-        # Read the file with better encoding handling
-        try:
-            with open(txt_path, 'r', encoding='utf-8') as f:
-                lines = [line.strip() for line in f.readlines() if line.strip()]
-        except UnicodeDecodeError:
-            # Fallback to other encodings if UTF-8 fails
-            encodings = ['latin1', 'cp1252', 'iso-8859-1']
-            for encoding in encodings:
-                try:
-                    with open(txt_path, 'r', encoding=encoding) as f:
-                        lines = [line.strip() for line in f.readlines() if line.strip()]
-                    break
-                except UnicodeDecodeError:
-                    continue
-        
-        if not lines:
-            await status_msg.edit_text("❌ The text file is empty.")
-            return
-        
-        # Ask user for start and end range
-        await status_msg.edit_text(
-            f"📝 Found {len(lines)} links in your file.\n\n"
-            f"Please reply with the range you want to download (e.g., '1-10' or '5' for single file)."
+        # Generate HTML
+        html_content = generate_html(
+            message.document.file_name,
+            videos, pdfs, others,
+            user_id, user_token, browser_token
         )
         
-        # Store user data
-        user_data[user_id] = {
-            'txt_path': txt_path,
-            'lines': lines,
-            'processed_files': [],
-            'failed_downloads': []
-        }
+        html_path = file_path.replace(".txt", ".html")
+        with open(html_path, "w", encoding='utf-8') as f:
+            f.write(html_content)
         
+        # Send to user
+        await message.reply_document(
+            document=html_path,
+            caption=(
+                f"📄 {os.path.splitext(message.document.file_name)[0]}\n"
+                f"👤 Generated for: {user_name}\n\n"
+                f"🔐 Browser Access Token:\n<code>{browser_token}</code>\n\n"
+                "⚠️ Open in Telegram first to authenticate, then use the token for browser access."
+            ),
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔄 New Token", callback_data=f"new_token_{user_id}")
+            ]])
+        )
+        
+        # Forward to channel
+        if CHANNEL_USERNAME:
+            await client.send_document(
+                chat_id=CHANNEL_USERNAME,
+                document=html_path,
+                caption=f"HTML file generated for {user_name} ({user_id})"
+            )
+            
     except Exception as e:
-        logger.error(f"Error processing text file: {e}")
         await message.reply_text(f"❌ Error processing file: {str(e)}")
-        if 'status_msg' in locals():
-            await status_msg.delete()
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        if html_path and os.path.exists(html_path):
+            os.remove(html_path)
 
-@app.on_message(filters.text & ~filters.command(["start", "stop"]))
-async def handle_range_selection(client: Client, message: Message):
-    user_id = message.from_user.id
-    
-    if user_id not in user_data:
-        return  # Not in processing mode
-    
-    if not message.text.strip():
+@app.on_callback_query(filters.regex(r"^new_token_(\d+)$"))
+async def new_token_handler(client, callback):
+    user_id = int(callback.matches[0].group(1))
+    if callback.from_user.id != user_id:
+        await callback.answer("❌ This button is not for you!", show_alert=True)
         return
     
-    # Parse range input
-    try:
-        range_input = message.text.strip()
-        if '-' in range_input:
-            start, end = map(int, range_input.split('-'))
-        else:
-            start = end = int(range_input)
-        
-        # Validate range
-        lines = user_data[user_id]['lines']
-        if start < 1 or end > len(lines) or start > end:
-            await message.reply_text(f"❌ Invalid range. Please enter between 1 and {len(lines)}")
-            return
-        
-        processing_msg = await message.reply_text(f"⏳ Starting download from line {start} to {end}...")
-        failed_items = []
-        success_count = 0
-        
-        for i in range(start-1, end):  # Convert to 0-based index
-            if stop_flags.get(user_id, False):
-                await processing_msg.edit_text("🛑 Processing stopped by user")
-                stop_flags[user_id] = False  # Reset flag
-                break
-            
-            line = lines[i]
-            video_name, url, key = extract_url_info(line)
-            count = i + 1  # 1-based index for display
-            
-            if not url:
-                failed_item = {
-                    'number': count,
-                    'name': video_name,
-                    'url': 'Invalid URL format',
-                    'error': 'Could not extract valid URL'
-                }
-                failed_items.append(failed_item)
-                await message.reply_text(create_failure_message(failed_item))
-                continue
-                
-            try:
-                await processing_msg.edit_text(f"⏳ Downloading #{count}: {video_name or 'Unnamed file'}")
-                
-                # Create temp paths
-                temp_dir = "temp_files"
-                encrypted_path = os.path.join(temp_dir, f"temp_{user_id}_{i}.tmp")
-                final_path = None
-                
-                # Download with progress tracking
-                try:
-                    async def progress_callback(current, total):
-                        if total > 0:
-                            percentage = (current / total) * 100
-                            await processing_msg.edit_text(
-                                f"⏳ Downloading #{count}: {video_name or 'Unnamed file'}\n"
-                                f"Progress: {percentage:.1f}%"
-                            )
-                    
-                    if not await download_with_retry(url, encrypted_path, progress_callback):
-                        raise Exception("Download failed after retries")
-                except Exception as e:
-                    failed_item = {
-                        'number': count,
-                        'name': video_name,
-                        'url': url,
-                        'error': str(e)
-                    }
-                    failed_items.append(failed_item)
-                    await message.reply_text(create_failure_message(failed_item))
-                    continue
-                
-                # Decrypt if key exists
-                if key:
-                    if not decrypt_file(encrypted_path, key):
-                        failed_item = {
-                            'number': count,
-                            'name': video_name,
-                            'url': url,
-                            'error': "Decryption failed - invalid key"
-                        }
-                        failed_items.append(failed_item)
-                        await message.reply_text(create_failure_message(failed_item))
-                        continue
-                
-                # Determine file type and extension
-                ext = get_file_extension(url)
-                res = ""  # Resolution placeholder if needed
-                
-                if video_name:
-                    safe_name = "".join(c for c in video_name if c.isalnum() or c in (' ', '-', '_'))
-                    final_filename = f"{safe_name}.{ext}" if ext else safe_name
-                else:
-                    final_filename = f"file_{count}.{ext}" if ext else f"file_{count}"
-                
-                final_path = os.path.join(temp_dir, final_filename)
-                os.rename(encrypted_path, final_path)
-                user_data[user_id]['processed_files'].append(final_path)
-                
-                # Prepare caption based on file type
-                name1 = video_name or f"File {count}"
-                
-                if ext and is_video_file(ext):
-                    caption = (
-                        f"**🎞️ VID_ID: {str(count).zfill(3)}.\n\n"
-                        f"📝 Title: {name1} {my_name} {res}.mkv\n\n"
-                        f"📥 Extracted By : {CR}\n\n"
-                        f"**━━━━━✦{my_name}✦━━━━━**"
-                    )
-                elif ext and is_document_file(ext):
-                    caption = (
-                        f"**📁 PDF_ID: {str(count).zfill(3)}.\n\n"
-                        f"📝 Title: {name1} {my_name}.pdf\n\n"
-                        f"📥 Extracted By : {CR}\n\n"
-                        f"**━━━━━✦{my_name}✦━━━━━**"
-                    )
-                else:
-                    caption = f"File #{count}: {name1}"
-                
-                # Send to user with progress tracking
-                try:
-                    if ext and is_video_file(ext):
-                        await message.reply_document(
-                            document=final_path,
-                            caption=caption,
-                            progress=lambda current, total: logger.info(f"Uploaded {current} of {total} bytes")
-                        )
-                    elif ext and is_document_file(ext):
-                        await message.reply_document(
-                            document=final_path,
-                            caption=caption,
-                            progress=lambda current, total: logger.info(f"Uploaded {current} of {total} bytes")
-                        )
-                    else:
-                        await message.reply_document(
-                            document=final_path,
-                            caption=caption,
-                            progress=lambda current, total: logger.info(f"Uploaded {current} of {total} bytes")
-                        )
-                    
-                    success_count += 1
-                except FloodWait as e:
-                    await asyncio.sleep(e.value)
-                    continue
-                except Exception as e:
-                    failed_item = {
-                        'number': count,
-                        'name': video_name,
-                        'url': url,
-                        'error': f"Failed to send file: {str(e)}"
-                    }
-                    failed_items.append(failed_item)
-                    await message.reply_text(create_failure_message(failed_item))
-                    continue
-                
-            except Exception as e:
-                logger.error(f"Error processing line {count}: {e}")
-                failed_item = {
-                    'number': count,
-                    'name': video_name,
-                    'url': url,
-                    'error': str(e)
-                }
-                failed_items.append(failed_item)
-                await message.reply_text(create_failure_message(failed_item))
-                continue
-        
-        # Final message
-        await processing_msg.edit_text(f"✅ Finished processing {success_count} files")
-        
-        # Store failed items
-        if failed_items:
-            user_data[user_id]['failed_downloads'] = failed_items
-        
-    except ValueError:
-        await message.reply_text("❌ Invalid input. Please enter numbers like '1-10' or '5'")
-    except Exception as e:
-        logger.error(f"Error in range processing: {e}")
-        await message.reply_text(f"❌ Error during processing: {str(e)}")
-    finally:
-        # Clean up processed files
-        if user_id in user_data and 'processed_files' in user_data[user_id]:
-            for file_path in user_data[user_id]['processed_files']:
-                try:
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                except:
-                    pass
-        stop_flags[user_id] = False  # Reset stop flag
+    new_token = generate_browser_token()
+    await callback.message.edit_text(
+        callback.message.text.split("\n\n🔐")[0] + 
+        f"\n\n🔐 New Browser Token:\n<code>{new_token}</code>\n\n"
+        "⚠️ Open in Telegram first to authenticate, then use the token for browser access.",
+        reply_markup=callback.message.reply_markup
+    )
+    await callback.answer("✅ New token generated!")
 
+@app.on_callback_query(filters.regex("^help$"))
+async def help_handler(client, callback):
+    await callback.answer()
+    await callback.message.edit_text(
+        "📚 Help Guide:\n\n"
+        "1. Prepare a .txt file with content like:\n"
+        "<code>Lecture 1:https://example.com/video1.mp4\n"
+        "Notes:https://example.com/notes.pdf</code>\n\n"
+        "2. Send the file to this bot\n"
+        "3. Open the received HTML file in Telegram first\n"
+        "4. After Telegram verification, use the browser token to access from any device\n\n"
+        "🔒 All files are secured to your Telegram account",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]])
+    )
+
+@app.on_callback_query(filters.regex("^back$"))
+async def back_handler(client, callback):
+    await callback.answer()
+    await callback.message.edit_text(
+        "📁 Welcome to HTML Generator Bot!\n\n"
+        "Send me a .txt file with name:URL pairs to create a secure HTML file.\n\n"
+        f"Your User ID: <code>{callback.from_user.id}</code>",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❓ Help", callback_data="help")]])
+    )
+
+# ===== MAIN =====
 if __name__ == "__main__":
-    # Create temp directory if not exists
-    os.makedirs("temp_files", exist_ok=True)
-    logger.info("Bot is running...")
+    print("✅ Bot is running...")
     app.run()
