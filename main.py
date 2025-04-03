@@ -6,6 +6,7 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from datetime import datetime
 import secrets
 import html
+import time
 
 # ===== CONFIGURATION =====
 API_ID = "21705536"
@@ -88,6 +89,7 @@ def generate_html(file_name, videos, pdfs, others, user_id, user_token, browser_
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{escaped_base_name}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {{
             font-family: Arial, sans-serif;
@@ -145,10 +147,10 @@ def generate_html(file_name, videos, pdfs, others, user_id, user_token, browser_
     <div id="auth-container" class="auth-container">
         <h2>🔒 Secure Content Access</h2>
         <div id="telegram-auth">
-            <p>Please open this file in Telegram first to verify your identity:</p>
-            <a href="https://t.me/{html.escape(app.me.username)}" class="telegram-btn">
-                <i class="fab fa-telegram"></i> Open in Telegram
-            </a>
+            <p>Please verify your identity through Telegram:</p>
+            <button class="telegram-btn" onclick="verifyWithTelegram()">
+                <i class="fab fa-telegram"></i> Verify with Telegram
+            </button>
             <p id="verified-msg" style="display:none;">
                 <i class="fas fa-check-circle verified-badge"></i> Verified successfully!
             </p>
@@ -198,20 +200,27 @@ def generate_html(file_name, videos, pdfs, others, user_id, user_token, browser_
         const BROWSER_TOKEN = "{browser_token}";
         const EXPIRY_DAYS = 7;
         
-        // Check Telegram authentication
-        function checkTelegramAuth() {{
-            try {{
-                if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() === USER_ID) {{
+        // Verify with Telegram WebApp
+        function verifyWithTelegram() {{
+            if (window.Telegram && Telegram.WebApp) {{
+                Telegram.WebApp.expand();
+                const tgUser = Telegram.WebApp.initDataUnsafe?.user;
+                if (tgUser && tgUser.id.toString() === USER_ID) {{
+                    // Successful verification
                     localStorage.setItem('tg_verified', 'true');
                     localStorage.setItem('tg_user_id', USER_ID);
                     localStorage.setItem('browser_token', BROWSER_TOKEN);
                     localStorage.setItem('token_expiry', Date.now() + (EXPIRY_DAYS * 24 * 60 * 60 * 1000));
-                    return true;
+                    
+                    document.getElementById('verified-msg').style.display = 'block';
+                    document.getElementById('browser-access').style.display = 'block';
+                    document.querySelector('button.telegram-btn').style.display = 'none';
+                }} else {{
+                    alert('Verification failed. Please make sure you opened this in Telegram and are the correct user.');
                 }}
-            }} catch (e) {{
-                console.log('Telegram auth error:', e);
+            }} else {{
+                alert('Please open this in Telegram to verify your identity.');
             }}
-            return false;
         }}
         
         // Check existing valid authentication
@@ -238,7 +247,7 @@ def generate_html(file_name, videos, pdfs, others, user_id, user_token, browser_
                        storedToken === BROWSER_TOKEN &&
                        storedExpiry && parseInt(storedExpiry) > Date.now();
             }} catch (e) {{
-                console.log('LocalStorage error:', e);
+                console.error('LocalStorage error:', e);
                 return false;
             }}
         }}
@@ -271,11 +280,14 @@ def generate_html(file_name, videos, pdfs, others, user_id, user_token, browser_
         
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {{
-            if (checkTelegramAuth() || checkExistingAuth()) {{
+            // Check if Telegram WebApp is available
+            if (window.Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() === USER_ID) {{
+                document.querySelector('button.telegram-btn').click();
+            }}
+            
+            if (checkExistingAuth()) {{
                 document.getElementById('auth-container').style.display = 'none';
                 document.getElementById('content').style.display = 'block';
-                document.getElementById('verified-msg').style.display = 'block';
-                document.getElementById('browser-access').style.display = 'block';
             }}
         }});
     </script>
@@ -330,20 +342,33 @@ async def document_handler(client: Client, message: Message):
         with open(html_path, "w", encoding='utf-8') as f:
             f.write(html_content)
         
-        # Send to user
-        await message.reply_document(
-            document=html_path,
-            caption=(
-                f"📄 {os.path.splitext(message.document.file_name)[0]}\n"
-                f"👤 Generated for: {user_name}\n\n"
-                f"🔐 Browser Access Token:\n<code>{browser_token}</code>\n\n"
-                "⚠️ Open in Telegram first to authenticate, then use the token for browser access."
-            ),
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("🔄 New Token", callback_data=f"new_token_{user_id}")
-            ]])
-        )
-            
+        # Calculate file hash to avoid MD5_CHECKSUM_INVALID error
+        file_hash = hashlib.md5(open(html_path, 'rb').read()).hexdigest()
+        
+        # Send to user with retry logic
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                await message.reply_document(
+                    document=html_path,
+                    file_name=f"{os.path.splitext(message.document.file_name)[0]}.html",
+                    caption=(
+                        f"📄 {os.path.splitext(message.document.file_name)[0]}\n"
+                        f"👤 Generated for: {user_name}\n\n"
+                        f"🔐 Browser Access Token:\n<code>{browser_token}</code>\n\n"
+                        "⚠️ Open in Telegram first to authenticate, then use the token for browser access."
+                    ),
+                    reply_markup=InlineKeyboardMarkup([[
+                        InlineKeyboardButton("🔄 New Token", callback_data=f"new_token_{user_id}")
+                    ]]),
+                    thumb=DEFAULT_THUMBNAIL
+                )
+                break
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(1)
+                
     except Exception as e:
         await message.reply_text(f"❌ Error processing file: {str(e)}")
     finally:
@@ -352,6 +377,8 @@ async def document_handler(client: Client, message: Message):
         if html_path and os.path.exists(html_path):
             os.remove(html_path)
 
+last_token_message = {}
+
 @app.on_callback_query(filters.regex(r"^new_token_(\d+)$"))
 async def new_token_handler(client, callback):
     user_id = int(callback.matches[0].group(1))
@@ -359,19 +386,30 @@ async def new_token_handler(client, callback):
         await callback.answer("❌ This button is not for you!", show_alert=True)
         return
     
+    # Generate new token
     new_token = generate_browser_token()
-    await callback.message.edit_text(
-        callback.message.text.split("\n\n🔐")[0] + 
-        f"\n\n🔐 New Browser Token:\n<code>{new_token}</code>\n\n"
-        "⚠️ Open in Telegram first to authenticate, then use the token for browser access.",
-        reply_markup=callback.message.reply_markup
-    )
-    await callback.answer("✅ New token generated!")
+    
+    # Check if message content would be the same
+    original_text = callback.message.text or callback.message.caption
+    new_text = original_text.split("\n\n🔐")[0] + f"\n\n🔐 New Browser Token:\n<code>{new_token}</code>\n\n⚠️ Open in Telegram first to authenticate, then use the token for browser access."
+    
+    # Only edit if content has changed
+    if original_text != new_text:
+        try:
+            await callback.message.edit_text(
+                text=new_text,
+                reply_markup=callback.message.reply_markup
+            )
+            await callback.answer("✅ New token generated!")
+        except Exception as e:
+            await callback.answer("⚠️ Please wait before generating another token", show_alert=True)
+    else:
+        await callback.answer("⚠️ Token already up-to-date", show_alert=True)
 
 @app.on_callback_query(filters.regex("^help$"))
 async def help_handler(client, callback):
     await callback.answer()
-    await callback.message.edit_text(
+    help_text = (
         "📚 Help Guide:\n\n"
         "1. Prepare a .txt file with content like:\n"
         "<code>Lecture 1:https://example.com/video1.mp4\n"
@@ -379,19 +417,31 @@ async def help_handler(client, callback):
         "2. Send the file to this bot\n"
         "3. Open the received HTML file in Telegram first\n"
         "4. After Telegram verification, use the browser token to access from any device\n\n"
-        "🔒 All files are secured to your Telegram account",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]])
+        "🔒 All files are secured to your Telegram account"
     )
+    
+    # Only edit if content has changed
+    if (callback.message.text or callback.message.caption) != help_text:
+        await callback.message.edit_text(
+            help_text,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data="back")]])
+        )
 
 @app.on_callback_query(filters.regex("^back$"))
 async def back_handler(client, callback):
     await callback.answer()
-    await callback.message.edit_text(
+    back_text = (
         "📁 Welcome to HTML Generator Bot!\n\n"
         "Send me a .txt file with name:URL pairs to create a secure HTML file.\n\n"
-        f"Your User ID: <code>{callback.from_user.id}</code>",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❓ Help", callback_data="help")]])
+        f"Your User ID: <code>{callback.from_user.id}</code>"
     )
+    
+    # Only edit if content has changed
+    if (callback.message.text or callback.message.caption) != back_text:
+        await callback.message.edit_text(
+            back_text,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❓ Help", callback_data="help")]])
+        )
 
 # ===== MAIN =====
 if __name__ == "__main__":
