@@ -1,5 +1,5 @@
 from pyrogram import Client, filters
-from pyrogram.types import Message
+from pyrogram.types import Message, User
 from datetime import datetime
 
 app = Client(
@@ -9,48 +9,52 @@ app = Client(
     bot_token="8193765546:AAEs_Ul-zoQKAto5-I8vYJpGSZgDEa-POeU"  # Get from @BotFather
 )
 
+def format_phone_number(phone: str) -> str:
+    """Format phone number with country code if available"""
+    if not phone:
+        return "🚫 Hidden"
+    return f"📱 +{phone}" if phone.startswith("+") else f"📱 {phone}"
+
 @app.on_message(filters.command("start"))
 async def get_user_details(client: Client, message: Message):
     user = message.from_user
+    if not user:
+        return await message.reply("❌ Could not fetch user details")
     
-    # Basic details always available
-    details = {
-        "User ID": user.id,
-        "Username": f"@{user.username}" if user.username else "None",
-        "First Name": user.first_name,
-        "Last Name": user.last_name if user.last_name else "None",
-        "Full Name": user.first_name + (" " + user.last_name if user.last_name else ""),
-        "Is Bot": "Yes" if user.is_bot else "No",
-        "Language Code": user.language_code if user.language_code else "None",
-        "Telegram Premium": "Yes" if user.is_premium else "No",
-        "Restricted": "Yes" if user.is_restricted else "No",
-        "Verified": "Yes" if user.is_verified else "No",
-        "Scam": "Yes" if user.is_scam else "No",
-        "Fake": "Yes" if user.is_fake else "No"
-    }
-    
-    # Try to get more sensitive details
+    # Get complete user object
     try:
-        full_user = await client.get_users(user.id)
-        more_details = {
-            "Phone Number": full_user.phone_number if hasattr(full_user, 'phone_number') else "Hidden",
-            "Account Creation Date": datetime.fromtimestamp(full_user.date).strftime('%Y-%m-%d %H:%M:%S') if hasattr(full_user, 'date') else "Unknown",
-            "Profile Photo": "Yes" if full_user.photo else "No",
-            "Bio": (await client.get_chat(full_user.id)).bio if (await client.get_chat(full_user.id)).bio else "None",
-            "Last Online": datetime.fromtimestamp(full_user.last_online_date).strftime('%Y-%m-%d %H:%M:%S') if hasattr(full_user, 'last_online_date') else "Hidden",
-            "Birthday": full_user.birthday if hasattr(full_user, 'birthday') else "Not set",
-            "DC ID": full_user.dc_id if hasattr(full_user, 'dc_id') else "Unknown"
-        }
-        details.update(more_details)
+        full_user: User = await client.get_users(user.id)
     except Exception as e:
-        print(f"Couldn't get additional details: {e}")
+        print(f"Error getting full user: {e}")
+        full_user = user
     
-    # Format the message as plain text
-    details_message = "Telegram User Details:\n\n"
-    for key, value in details.items():
-        if value and str(value).lower() not in ["none", "hidden", "unknown", "not set"]:
-            details_message += f"• {key}: {value}\n"
+    # Prepare all possible details
+    details = [
+        ("🆔 User ID", str(user.id)),
+        ("👤 Username", f"@{user.username}" if user.username else "🚫 None"),
+        ("👔 First Name", user.first_name or "🚫 None"),
+        ("👖 Last Name", user.last_name or "🚫 None"),
+        ("📛 Full Name", f"{user.first_name or ''} {user.last_name or ''}".strip() or "🚫 None"),
+        ("🤖 Bot Account", "✅ Yes" if user.is_bot else "❌ No"),
+        ("🌐 Language", user.language_code or "🚫 Unknown"),
+        ("💎 Premium", "✨ Yes" if user.is_premium else "❌ No"),
+        ("🔐 Restricted", "🔒 Yes" if user.is_restricted else "🔓 No"),
+        ("✅ Verified", "☑️ Yes" if user.is_verified else "❌ No"),
+        ("⚠️ Scam", "🚨 Yes" if user.is_scam else "✅ No"),
+        ("🚫 Fake", "❌ Yes" if user.is_fake else "✅ No"),
+        ("📅 Account Created", datetime.fromtimestamp(user.date).strftime('%Y-%m-%d %H:%M:%S') if hasattr(user, 'date') else "🚫 Unknown"),
+        ("📞 Phone Number", format_phone_number(getattr(full_user, 'phone_number', None))),
+        ("🖼️ Profile Photo", "🖼️ Yes" if user.photo else "🚫 No"),
+        ("📝 Bio", (await client.get_chat(user.id)).bio or "🚫 None"),
+        ("📱 Last Seen", datetime.fromtimestamp(full_user.last_online_date).strftime('%Y-%m-%d %H:%M:%S') if hasattr(full_user, 'last_online_date') else "🚫 Hidden"),
+        ("🎂 Birthday", str(full_user.birthday) if hasattr(full_user, 'birthday') else "🚫 Not set"),
+        ("🌍 Data Center", f"DC {full_user.dc_id}" if hasattr(full_user, 'dc_id') else "🚫 Unknown"),
+    ]
     
-    await message.reply_text(details_message)  # Removed parse_mode completely
+    # Format the message
+    details_message = "🔍 <b>Telegram User Details</b> 🔍\n\n"
+    details_message += "\n".join(f"• {emoji} {field}: {value}" for emoji, field, value in details)
+    
+    await message.reply_text(details_message)
 
 app.run()
