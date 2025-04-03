@@ -13,7 +13,7 @@ app = Client(
 async def get_user_details(client: Client, message: Message):
     user = message.from_user
     
-    # Basic details
+    # Basic details always available
     details = {
         "🆔 User ID": user.id,
         "👤 Username": f"@{user.username}" if user.username else "None",
@@ -22,46 +22,35 @@ async def get_user_details(client: Client, message: Message):
         "📛 Full Name": user.first_name + (" " + user.last_name if user.last_name else ""),
         "🤖 Is Bot": "Yes" if user.is_bot else "No",
         "🌐 Language Code": user.language_code if user.language_code else "None",
-        "📞 Phone Number": user.phone_number if hasattr(user, 'phone_number') and user.phone_number else "Hidden",
         "💎 Telegram Premium": "Yes" if user.is_premium else "No",
         "🔒 Restricted": "Yes" if user.is_restricted else "No",
         "✅ Verified": "Yes" if user.is_verified else "No",
         "❌ Scam": "Yes" if user.is_scam else "No",
-        "🚫 Fake": "Yes" if user.is_fake else "No",
-        "📅 Account Creation Date": datetime.fromtimestamp(user.date).strftime('%Y-%m-%d %H:%M:%S') if hasattr(user, 'date') else "Unknown",
-        "🖼️ Profile Photo": "Yes" if user.photo else "No",
-        "📝 Bio": (await client.get_chat(user.id)).bio if (await client.get_chat(user.id)).bio else "None",
-        "👥 Common Chats": len(await client.get_common_chats(user.id)) if hasattr(user, 'get_common_chats') else "Unknown"
+        "🚫 Fake": "Yes" if user.is_fake else "No"
     }
     
-    # Format the details message
-    details_message = "🔍 <b>Telegram User Details:</b>\n\n"
-    for key, value in details.items():
-        details_message += f"• <b>{key}:</b> {value}\n"
-    
-    # Add DC information if available
-    if hasattr(user, 'dc_id'):
-        details_message += f"\n🌍 <b>Data Center:</b> DC {user.dc_id}"
-    
-    await message.reply_text(details_message, parse_mode="html")
-
-    # Try to get more details via get_users
+    # Try to get more sensitive details (may be hidden by privacy settings)
     try:
         full_user = await client.get_users(user.id)
-        if full_user:
-            extra_details = {
-                "📱 Last Online": datetime.fromtimestamp(full_user.last_online_date).strftime('%Y-%m-%d %H:%M:%S') if hasattr(full_user, 'last_online_date') else "Hidden",
-                "📅 Birthday": full_user.birthday if hasattr(full_user, 'birthday') else "Not set",
-                "🏙️ Personal Channel": f"@{full_user.personal_channel.username}" if hasattr(full_user, 'personal_channel') and full_user.personal_channel else "None"
-            }
-            
-            extra_message = "\n\n🔎 <b>Additional Details:</b>\n"
-            for key, value in extra_details.items():
-                if value != "Not set" and value != "Hidden":
-                    extra_message += f"• <b>{key}:</b> {value}\n"
-            
-            await message.reply_text(extra_message, parse_mode="html")
+        more_details = {
+            "📞 Phone Number": full_user.phone_number if hasattr(full_user, 'phone_number') else "Hidden",
+            "📅 Account Creation Date": datetime.fromtimestamp(full_user.date).strftime('%Y-%m-%d %H:%M:%S') if hasattr(full_user, 'date') else "Unknown",
+            "🖼️ Profile Photo": "Yes" if full_user.photo else "No",
+            "📝 Bio": (await client.get_chat(full_user.id)).bio if (await client.get_chat(full_user.id)).bio else "None",
+            "📱 Last Online": datetime.fromtimestamp(full_user.last_online_date).strftime('%Y-%m-%d %H:%M:%S') if hasattr(full_user, 'last_online_date') else "Hidden",
+            "🎂 Birthday": full_user.birthday if hasattr(full_user, 'birthday') else "Not set",
+            "🌍 DC ID": full_user.dc_id if hasattr(full_user, 'dc_id') else "Unknown"
+        }
+        details.update(more_details)
     except Exception as e:
-        print(f"Couldn't get extra details: {e}")
+        print(f"Couldn't get additional details: {e}")
+    
+    # Format the message
+    details_message = "🔍 <b>Telegram User Details:</b>\n\n"
+    for key, value in details.items():
+        if value and str(value).lower() not in ["none", "hidden", "unknown", "not set"]:
+            details_message += f"• <b>{key}:</b> {value}\n"
+    
+    await message.reply_text(details_message, parse_mode="html")
 
 app.run()
