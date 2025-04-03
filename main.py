@@ -1,17 +1,22 @@
+
+
 import os
 import hashlib
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 import secrets
 import html
+import requests
 
 # ===== CONFIGURATION =====
 API_ID = "21705536"
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
 BOT_TOKEN = "8193765546:AAEs_Ul-zoQKAto5-I8vYJpGSZgDEa-POeU"
-CHANNEL_USERNAME = "@kuvnypkyjk"
-DEFAULT_THUMBNAIL = "https://i.postimg.cc/4N69wBLt/hat-hacker.webp"
 SECRET_KEY = "khvhgfnkjfdsbjuhb"
+
+# Default thumbnail (using a reliable placeholder)
+DEFAULT_THUMBNAIL_URL = "https://via.placeholder.com/150/007bff/ffffff?text=HTML"
+THUMBNAIL_PATH = "thumbnail.jpg"
 
 # ===== BOT SETUP =====
 app = Client("secure_html_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -24,6 +29,20 @@ def generate_user_token(user_id):
 def generate_access_code():
     """Generate a random 8-digit access code"""
     return ''.join(secrets.choice('0123456789') for _ in range(8))
+
+def download_default_thumbnail():
+    """Download the default thumbnail if it doesn't exist"""
+    if not os.path.exists(THUMBNAIL_PATH):
+        try:
+            response = requests.get(DEFAULT_THUMBNAIL_URL, stream=True)
+            response.raise_for_status()
+            with open(THUMBNAIL_PATH, 'wb') as f:
+                for chunk in response.iter_content(1024):
+                    f.write(chunk)
+        except Exception as e:
+            print(f"Couldn't download thumbnail: {e}")
+            return None
+    return THUMBNAIL_PATH
 
 def extract_names_and_urls(file_content):
     """Extract name:URL pairs from text content"""
@@ -236,6 +255,9 @@ def generate_html(file_name, videos, pdfs, others, user_id, user_token, access_c
 </html>"""
     return html_content
 
+# Download default thumbnail at startup
+download_default_thumbnail()
+
 # ===== TELEGRAM HANDLERS =====
 @app.on_message(filters.command("start"))
 async def start_handler(client: Client, message: Message):
@@ -285,6 +307,9 @@ async def document_handler(client: Client, message: Message):
         with open(html_path, "w", encoding='utf-8') as f:
             f.write(html_content)
         
+        # Get thumbnail (use default if available)
+        thumb = THUMBNAIL_PATH if os.path.exists(THUMBNAIL_PATH) else None
+        
         # Send to user with strict instructions
         await message.reply_document(
             document=html_path,
@@ -298,7 +323,8 @@ async def document_handler(client: Client, message: Message):
                 "2. The access code will be required to view content\n"
                 "3. The file is tied to your User ID only\n\n"
                 "You will need both your User ID and Access Code to view the content."
-            )
+            ),
+            thumb=thumb
         )
         
     except Exception as e:
