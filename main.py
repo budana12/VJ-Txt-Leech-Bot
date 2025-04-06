@@ -1,611 +1,381 @@
+#!/usr/bin/env python3
 import os
-import requests
-import hashlib
-import secrets
+import mmap
+import time
+import logging
+import asyncio
+import subprocess
 from pyrogram import Client, filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from datetime import datetime
+from pyrogram.types import Message
+from pyrogram.errors import FloodWait
+from tenacity import retry, stop_after_attempt, wait_exponential
 
-# Bot configuration
-API_ID = "21705536"
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Bot configuration (replace with your values)
+API_ID = 21705536
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
 BOT_TOKEN = "8193765546:AAEs_Ul-zoQKAto5-I8vYJpGSZgDEa-POeU"
-DEFAULT_THUMBNAIL = "https://i.postimg.cc/4N69wBLt/hat-hacker.webp"
-SECRET_KEY = "kfskjhfsdcnnsfsncnsdk"  # IMPORTANT: Change this!
 
-app = Client("secure_html_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# Constants
+MAX_FILE_SIZE = 2000 * 1024 * 1024  # 2GB Telegram limit
+SUPPORTED_VIDEO_EXTENSIONS = ['mp4', 'mkv', 'mov', 'avi', 'webm']
+SUPPORTED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt']
+MAX_CONCURRENT_DOWNLOADS = 4  # Number of parallel downloads
+ARIA2_CONNECTIONS = 16  # Connections per download
 
-# Utility functions
-def generate_user_token(user_id):
-    return hashlib.sha256(f"{user_id}{SECRET_KEY}".encode()).hexdigest()
+# Customize these as needed
+CR = "𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚"  # Credit/Extracted By
+my_name = "𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚"  # Your name for captions
 
-def generate_access_code():
-    return ''.join(secrets.choice('0123456789') for _ in range(6))
+# Initialize the Pyrogram client
+app = Client("file_decryptor_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-def format_phone_number(phone):
-    if not phone:
-        return "🚫 Hidden"
-    return f"📞 {phone[:4]}****{phone[-3:]}"
+# Global variables to store user data
+user_data = {}
+stop_flags = {}
 
-async def get_user_details(client, user):
+def download_with_aria2(url, save_path):
+    """Download file using aria2 with multiple connections"""
     try:
-        full_user = await client.get_users(user.id)
-    except Exception:
-        full_user = user
-    
-    details = [
-        ("🆔 User ID", str(user.id)),
-        ("👤 Username", f"@{user.username}" if user.username else "🚫 None"),
-        ("👔 First Name", user.first_name or "🚫 None"),
-        ("👖 Last Name", user.last_name or "🚫 None"),
-        ("📛 Full Name", f"{user.first_name or ''} {user.last_name or ''}".strip() or "🚫 None"),
-        ("🤖 Bot Account", "✅ Yes" if user.is_bot else "❌ No"),
-        ("🌐 Language", user.language_code or "🚫 Unknown"),
-        ("💎 Premium", "✨ Yes" if user.is_premium else "❌ No"),
-        ("🔐 Restricted", "🔒 Yes" if user.is_restricted else "🔓 No"),
-        ("✅ Verified", "☑️ Yes" if user.is_verified else "❌ No"),
-        ("⚠️ Scam", "🚨 Yes" if user.is_scam else "✅ No"),
-        ("🚫 Fake", "❌ Yes" if user.is_fake else "✅ No"),
-        ("📅 Account Created", datetime.fromtimestamp(user.date).strftime('%Y-%m-%d %H:%M:%S') if hasattr(user, 'date') else "🚫 Unknown"),
-        ("📞 Phone Number", format_phone_number(getattr(full_user, 'phone_number', None))),
-        ("🖼️ Profile Photo", "🖼️ Yes" if user.photo else "🚫 No"),
-        ("📝 Bio", getattr(full_user, 'bio', "🚫 None")),
-        ("📱 Last Seen", datetime.fromtimestamp(full_user.last_online_date).strftime('%Y-%m-%d %H:%M:%S') if hasattr(full_user, 'last_online_date') else "🚫 Hidden"),
-        ("🎂 Birthday", str(full_user.birthday) if hasattr(full_user, 'birthday') else "🚫 Not set"),
-        ("🌍 Data Center", f"DC {full_user.dc_id}" if hasattr(full_user, 'dc_id') else "🚫 Unknown"),
-    ]
-    return details
-
-def extract_names_and_urls(file_content):
-    lines = file_content.strip().split("\n")
-    data = []
-    for line in lines:
-        if ":" in line:
-            name, url = line.split(":", 1)
-            data.append((name.strip(), url.strip()))
-    return data
-
-def categorize_urls(urls):
-    videos, pdfs, others = [], [], []
-    
-    for name, url in urls:
-        if any(ext in url.lower() for ext in ['.m3u8', '.mp4', '.mkv', '.webm', '.avi', '.mov', '.wmv', '.flv', '.mpeg', '.mpd']):
-            videos.append((name, url))
-        elif 'youtube.com' in url or 'youtu.be' in url:
-            videos.append((name, url))
-        elif 'classplusapp.com' in url or 'testbook.com' in url:
-            videos.append((name, f"https://dragoapi.vercel.app/video/{url}"))
-        elif '.pdf' in url.lower():
-            pdfs.append((name, url))
-        elif '.zip' in url.lower():
-            videos.append((name, f"https://video.pablocoder.eu.org/appx-zip?url={url}"))
-        else:
-            others.append((name, url))
-    
-    return videos, pdfs, others
-
-def generate_html(file_name, videos, pdfs, others, user_id, access_code, user_details):
-    base_name = os.path.splitext(file_name)[0]
-    
-    # Generate user details HTML
-    details_html = "\n".join(
-        f'<div class="detail-item"><span class="detail-label">{label}:</span> <span class="detail-value">{value}</span></div>'
-        for label, value in user_details
-    )
-    
-    # Generate content links
-    video_links = "".join(f'<a href="#" onclick="playVideo(\'{url}\')">{name}</a>' for name, url in videos)
-    pdf_links = "".join(f'<a href="{url}" target="_blank">{name}</a> <a href="{url}" download>📥 Download PDF</a>' for name, url in pdfs)
-    other_links = "".join(f'<a href="{url}" target="_blank">{name}</a>' for name, url in others)
-
-    html_content = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{base_name}</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
-    <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; font-family: Arial, sans-serif; }}
-        body {{ background: #f5f7fa; text-align: center; }}
+        logger.info(f"Starting aria2 download for: {url}")
         
-        /* Auth modal styles */
-        .auth-modal {{
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.8);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }}
-        .auth-content {{
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            max-width: 400px;
-            width: 90%;
-        }}
-        .auth-content input {{
-            width: 100%;
-            padding: 12px;
-            margin: 10px 0;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-        }}
-        .auth-content button {{
-            width: 100%;
-            padding: 12px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }}
-        .error-message {{
-            color: red;
-            margin-top: 10px;
-            display: none;
-        }}
+        command = [
+            'aria2c',
+            url,
+            '-o', save_path,
+            '-x', str(ARIA2_CONNECTIONS),
+            '-s', str(ARIA2_CONNECTIONS),
+            '-j', str(ARIA2_CONNECTIONS),
+            '--max-tries=5',
+            '--retry-wait=5',
+            '--timeout=60',
+            '--connect-timeout=60',
+            '--check-certificate=false',
+            '--allow-overwrite=true',
+            '--auto-file-renaming=false',
+            '--quiet'
+        ]
         
-        /* User details section */
-        .user-details {{
-            background: white;
-            padding: 20px;
-            margin: 20px auto;
-            max-width: 600px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            text-align: left;
-        }}
-        .detail-item {{
-            margin: 10px 0;
-            padding: 10px;
-            border-bottom: 1px solid #eee;
-        }}
-        .detail-label {{
-            font-weight: bold;
-            color: #007bff;
-        }}
-        .detail-value {{
-            float: right;
-        }}
+        result = subprocess.run(command, check=True, capture_output=True, text=True)
         
-        /* Original styles remain unchanged */
-        .header {{ background: linear-gradient(90deg, #007bff, #6610f2); color: white; padding: 15px; font-size: 24px; font-weight: bold; }}
-        .subheading {{ font-size: 18px; margin-top: 10px; color: #555; font-weight: bold; }}
-        .subheading a {{ background: linear-gradient(90deg, #ff416c, #ff4b2b); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-decoration: none; font-weight: bold; }}
-        .container {{ display: flex; justify-content: space-around; margin: 30px auto; width: 80%; }}
-        .tab {{ flex: 1; padding: 20px; background: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); cursor: pointer; transition: 0.3s; border-radius: 10px; font-size: 20px; font-weight: bold; }}
-        .tab:hover {{ background: #007bff; color: white; }}
-        .content {{ display: none; margin-top: 20px; }}
-        .content.active {{ display: block; }}
-        .footer {{ margin-top: 30px; font-size: 18px; font-weight: bold; padding: 15px; background: #1c1c1c; color: white; border-radius: 10px; }}
-        .footer a {{ color: #ffeb3b; text-decoration: none; font-weight: bold; }}
-        .video-list, .pdf-list, .other-list {{ text-align: left; max-width: 600px; margin: auto; }}
-        .video-list a, .pdf-list a, .other-list a {{ display: block; padding: 10px; background: #fff; margin: 5px 0; border-radius: 5px; text-decoration: none; color: #007bff; font-weight: bold; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); }}
-        .video-list a:hover, .pdf-list a:hover, .other-list a:hover {{ background: #007bff; color: white; }}
-        .search-bar {{ margin: 20px auto; width: 80%; max-width: 600px; }}
-        .search-bar input {{ width: 100%; padding: 10px; border: 2px solid #007bff; border-radius: 5px; font-size: 16px; }}
-        .no-results {{ color: red; font-weight: bold; margin-top: 20px; display: none; }}
-        #video-player {{ display: none; margin: 20px auto; width: 80%; max-width: 800px; }}
-        #youtube-player {{ display: none; margin: 20px auto; width: 80%; max-width: 800px; }}
-        .download-button {{ margin-top: 10px; text-align: center; }}
-        .download-button a {{ background: #007bff; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold; }}
-        .download-button a:hover {{ background: #0056b3; }}
-        .datetime {{ margin-top: 10px; font-size: 18px; font-weight: bold; color: #2F4F4F; }}
-    </style>
-</head>
-<body>
-    <!-- Auth Modal -->
-    <div id="authModal" class="auth-modal">
-        <div class="auth-content">
-            <h2 style="text-align: center;">🔒 Secure Access</h2>
-            <input type="text" id="userIdInput" placeholder="Your User ID">
-            <input type="text" id="accessCodeInput" placeholder="Access Code">
-            <button onclick="verifyAccess()">Verify</button>
-            <p id="errorMessage" class="error-message">Invalid credentials</p>
-        </div>
-    </div>
-
-    <!-- Main Content (hidden until auth) -->
-    <div id="mainContent" style="display: none;">
-        <div class="header">{base_name}</div>
-        <div class="subheading">📥 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐞𝐝 𝐁𝐲 : <a href="https://t.me/Engineersbabuhelpbot" target="_blank">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div><br>
-        <div class="datetime" id="datetime">📅 {datetime.now().strftime('%A %d %B, %Y | ⏰ %I:%M:%S %p')}</div><br>
-        <p>🔹𝐔𝐬𝐞 𝐓𝐡𝐢𝐬 𝐁𝐨𝐭 𝐟𝐨𝐫 𝐓𝐗𝐓 𝐭𝐨 𝐇𝐓𝐌𝐋 𝐟𝐢𝐥𝐞 𝐄𝐱𝐭𝐫𝐚𝐜𝐭𝐢𝐨𝐧 : <a href="https://t.me/htmldeveloperbot" target="_blank"> @𝐡𝐭𝐦𝐥𝐝𝐞𝐯𝐞𝐥𝐨𝐩𝐞𝐫𝐛𝐨𝐭 </a></p>
-
-        <!-- User Details Section -->
-        <div class="user-details">
-            <h3 style="text-align: center; margin-bottom: 15px;">👤 User Information</h3>
-            {details_html}
-        </div>
-
-        <!-- Rest of original content -->
-        <div class="search-bar">
-            <input type="text" id="searchInput" placeholder="Search for videos, PDFs, or other resources..." oninput="filterContent()">
-        </div>
-
-        <div id="noResults" class="no-results">No results found.</div>
-
-        <div id="video-player">
-            <video id="engineer-babu-player" class="video-js vjs-default-skin" controls preload="auto" width="640" height="360">
-                <p class="vjs-no-js">
-                    To view this video please enable JavaScript, and consider upgrading to a web browser that
-                    <a href="https://videojs.com/html5-video-support/" target="_blank">supports HTML5 video</a>
-                </p>
-            </video>
-            <div class="download-button">
-                <a id="download-link" href="#" download>Download Video</a>
-            </div>
-            <div style="text-align: center; margin-top: 10px; font-weight: bold; color: #007bff;">Engineer Babu Player</div>
-        </div>
-
-        <div id="youtube-player">
-            <div id="player"></div>
-            <div style="text-align: center; margin-top: 10px; font-weight: bold; color: #007bff;">Engineer Babu Player</div>
-        </div>
-
-        <div class="container">
-            <div class="tab" onclick="showContent('videos')">Videos</div>
-            <div class="tab" onclick="showContent('pdfs')">PDFs</div>
-            <div class="tab" onclick="showContent('others')">Others</div>
-        </div>
-
-        <div id="videos" class="content active">
-            <h2>All Video Lectures</h2>
-            <div class="video-list">
-                {video_links}
-            </div>
-        </div>
-
-        <div id="pdfs" class="content">
-            <h2>All PDFs</h2>
-            <div class="pdf-list">
-                {pdf_links}
-            </div>
-        </div>
-
-        <div id="others" class="content">
-            <h2>Other Resources</h2>
-            <div class="other-list">
-                {other_links}
-            </div>
-        </div>
-
-        <div class="footer">Extracted By - <a href="https://t.me/Engineers_Babu" target="_blank">Engineer Babu</a></div>
-    </div>
-
-    <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
-    <script src="https://www.youtube.com/iframe_api"></script>
-    <script>
-        // Authentication data
-        const REQUIRED_USER_ID = "{user_id}";
-        const ACCESS_CODE = "{access_code}";
-        
-        // Check existing auth
-        function checkAuth() {{
-            const authData = localStorage.getItem('authData');
-            if (authData) {{
-                try {{
-                    const {{ userId, code }} = JSON.parse(authData);
-                    if (userId === REQUIRED_USER_ID && code === ACCESS_CODE) {{
-                        document.getElementById('authModal').style.display = 'none';
-                        document.getElementById('mainContent').style.display = 'block';
-                        return true;
-                    }}
-                }} catch (e) {{
-                    console.error('Error parsing auth data:', e);
-                }}
-            }}
-            return false;
-        }}
-        
-        // Verify access
-        function verifyAccess() {{
-            const userId = document.getElementById('userIdInput').value;
-            const code = document.getElementById('accessCodeInput').value;
+        if result.returncode != 0:
+            logger.error(f"aria2 download failed: {result.stderr}")
+            return False
             
-            if (userId === REQUIRED_USER_ID && code === ACCESS_CODE) {{
-                // Store auth data
-                localStorage.setItem('authData', JSON.stringify({{
-                    userId: REQUIRED_USER_ID,
-                    code: ACCESS_CODE
-                }}));
-                
-                // Show content
-                document.getElementById('authModal').style.display = 'none';
-                document.getElementById('mainContent').style.display = 'block';
-                document.getElementById('errorMessage').style.display = 'none';
-            }} else {{
-                document.getElementById('errorMessage').style.display = 'block';
-            }}
-        }}
+        logger.info(f"Download completed successfully to: {save_path}")
+        return True
         
-        // Initialize auth check
-        if (!checkAuth()) {{
-            document.getElementById('authModal').style.display = 'flex';
-        }}
+    except subprocess.CalledProcessError as e:
+        logger.error(f"aria2 download error: {e.stderr}")
+        return False
+    except Exception as e:
+        logger.error(f"Error in aria2 download: {str(e)}")
+        return False
+
+def extract_url_info(line):
+    """Extract video name, url and key from a line with validation"""
+    if not line or 'http' not in line:
+        return None, None, None
+    
+    try:
+        parts = line.split('http', 1)
+        video_name = parts[0].strip(' :')
+        url_part = 'http' + parts[1].strip() if len(parts) > 1 else None
         
-        // Original functions remain unchanged
-        const player = videojs('engineer-babu-player', {{
-            controls: true,
-            autoplay: true,
-            preload: 'auto',
-            fluid: true,
-        }});
+        if not url_part:
+            return None, None, None
+        
+        parsed = requests.utils.urlparse(url_part.split('*')[0])
+        if not all([parsed.scheme, parsed.netloc]):
+            return None, None, None
+        
+        if '*' in url_part:
+            base_url, key = url_part.split('*', 1)
+            return video_name, base_url.strip(), key.strip()
+        
+        return video_name, url_part.strip(), None
+        
+    except Exception as e:
+        logger.error(f"Error parsing line: {e}")
+        return None, None, None
 
-        let youtubePlayer;
+def decrypt_file(file_path, key):
+    if not os.path.exists(file_path):
+        logger.error("Encrypted file not found!")
+        return False
+    
+    try:
+        logger.info(f"Decrypting file: {file_path} with key: {key}")
+        with open(file_path, "r+b") as f:
+            num_bytes = min(28, os.path.getsize(file_path))
+            with mmap.mmap(f.fileno(), length=num_bytes, access=mmap.ACCESS_WRITE) as mmapped_file:
+                for i in range(num_bytes):
+                    mmapped_file[i] ^= ord(key[i % len(key)])
+        logger.info("Decryption completed successfully!")
+        return True
+    except Exception as e:
+        logger.error(f"Error during decryption: {e}")
+        return False
 
-        function onYouTubeIframeAPIReady() {{
-            youtubePlayer = new YT.Player('player', {{
-                height: '360',
-                width: '640',
-                events: {{
-                    'onReady': onPlayerReady,
-                }}
-            }});
-        }}
+def get_file_extension(url):
+    """Extract file extension from URL"""
+    filename = url.split('?')[0].split('#')[0].split('/')[-1]
+    if '.' in filename:
+        return filename.split('.')[-1].lower()
+    return None
 
-        function onPlayerReady(event) {{
-            // You can add additional functionality here if needed
-        }}
+def is_video_file(extension):
+    return extension in SUPPORTED_VIDEO_EXTENSIONS
 
-        function playVideo(url) {{
-            if (
-                url.includes('.m3u8') ||
-                url.includes('.mp4') ||
-                url.includes('.mkv') ||
-                url.includes('.webm') ||
-                url.includes('.MP4') ||
-                url.includes('.AVI') ||
-                url.includes('.MOV') ||
-                url.includes('.WMV') ||
-                url.includes('.MKV') ||
-                url.includes('.FLV') ||
-                url.includes('.MPEG') ||
-                url.includes('.mpd')
-            ) {{
-                document.getElementById('video-player').style.display = 'block';
-                document.getElementById('youtube-player').style.display = 'none';
-                const mimeType = getMimeType(url);
-                player.src({{ src: url, type: mimeType }});
-                player.play().catch(() => {{
-                    window.open(url, '_blank');
-                }});
-                document.getElementById('download-link').href = url;
-            }} else if (url.includes('youtube.com') || url.includes('youtu.be')) {{
-                document.getElementById('video-player').style.display = 'none';
-                document.getElementById('youtube-player').style.display = 'block';
-                youtubePlayer.loadVideoByUrl(url);
-            }} else {{
-                window.open(url, '_blank');
-            }}
-        }}
+def is_document_file(extension):
+    return extension in SUPPORTED_DOCUMENT_EXTENSIONS
 
-        function getMimeType(url) {{
-            if (url.includes('.m3u8')) {{
-                return 'application/x-mpegURL';
-            }} else if (url.includes('.mp4')) {{
-                return 'video/mp4';
-            }} else if (url.includes('.mkv')) {{
-                return 'video/x-matroska';
-            }} else if (url.includes('.webm')) {{
-                return 'video/webm';
-            }} else if (url.includes('.avi')) {{
-                return 'video/x-msvideo';
-            }} else if (url.includes('.mov')) {{
-                return 'video/quicktime';
-            }} else if (url.includes('.wmv')) {{
-                return 'video/x-ms-wmv';
-            }} else if (url.includes('.flv')) {{
-                return 'video/x-flv';
-            }} else if (url.includes('.mpeg')) {{
-                return 'video/mpeg';
-            }} else if (url.includes('.mpd')) {{
-                return 'application/dash+xml';
-            }} else {{
-                return 'video/mp4';
-            }}
-        }}
+def create_failure_message(item):
+    """Create a formatted failure message for a single item"""
+    message = "❌ Download Failed\n\n"
+    message += f"🔢 File Number: #{item['number']}\n"
+    message += f"📛 Name: {item['name'] or 'Unnamed'}\n"
+    message += f"🔗 URL: {item['url']}\n"
+    message += f"❗ Error: {item['error']}\n"
+    return message
 
-        function showContent(tabName) {{
-            const contents = document.querySelectorAll('.content');
-            contents.forEach(content => {{
-                content.classList.remove('active');
-                content.style.display = 'none';
-            }});
-            const selectedContent = document.getElementById(tabName);
-            if (selectedContent) {{
-                selectedContent.classList.add('active');
-                selectedContent.style.display = 'block';
-            }}
-            filterContent();
-        }}
-
-        function filterContent() {{
-            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-            const activeTab = document.querySelector('.content.active') || document.getElementById('videos');
-            const activeTabId = activeTab.id;
-            let hasResults = false;
-
-            let items;
-            if (activeTabId === 'videos') {{
-                items = document.querySelectorAll('#videos .video-list a');
-            }} else if (activeTabId === 'pdfs') {{
-                items = document.querySelectorAll('#pdfs .pdf-list a');
-            }} else if (activeTabId === 'others') {{
-                items = document.querySelectorAll('#others .other-list a');
-            }}
-
-            if (items) {{
-                items.forEach(item => {{
-                    let itemText;
-                    if (activeTabId === 'videos') {{
-                        itemText = item.textContent.toLowerCase();
-                    }} else if (activeTabId === 'pdfs') {{
-                        itemText = item.textContent.split('📥')[0].toLowerCase().trim();
-                    }} else {{
-                        itemText = item.textContent.toLowerCase();
-                    }}
-
-                    if (itemText.includes(searchTerm)) {{
-                        item.style.display = 'block';
-                        hasResults = true;
-                    }} else {{
-                        item.style.display = 'none';
-                    }}
-                }});
-            }}
-
-            const noResultsMessage = document.getElementById('noResults');
-            if (noResultsMessage) {{
-                noResultsMessage.style.display = hasResults ? 'none' : 'block';
-            }}
-        }}
-
-        function updateDateTime() {{
-            const now = new Date();
-            const options = {{ weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }};
-            const formattedDateTime = now.toLocaleDateString('en-US', options);
-            document.getElementById('datetime').innerText = `📅 ${{formattedDateTime}}`;
-        }}
-
-        document.addEventListener('DOMContentLoaded', () => {{
-            showContent('videos');
-            setInterval(updateDateTime, 1000);
-        }});
-    </script>
-</body>
-</html>"""
-    return html_content
-
-# Telegram handlers
 @app.on_message(filters.command("start"))
-async def start(client: Client, message: Message):
+async def start_command(client: Client, message: Message):
     await message.reply_text(
-        "🔒 Secure HTML Generator Bot\n\n"
-        "Send me a .txt file with content in format:\n"
-        "<code>Name:URL</code>\n\n"
-        f"Your User ID: <code>{message.from_user.id}</code>\n"
-        "This ID will be required to access your generated files.",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Help", callback_data="help")]])
+        "👋 Hello! I'm a file download bot with aria2 integration.\n\n"
+        "📁 Upload a .txt file containing your links in this format:\n\n"
+        "`Video Name:https://example.com/encrypted.mp4*mysecretkey`\n\n"
+        "Or simply:\n"
+        "`Video Name:https://example.com/file.mp4`\n\n"
+        "Each link should be on a new line. I'll process all valid links.\n\n"
+        "Commands:\n"
+        "/start - Show this message\n"
+        "/stop - Stop current processing"
     )
+
+@app.on_message(filters.command("stop"))
+async def stop_command(client: Client, message: Message):
+    user_id = message.from_user.id
+    stop_flags[user_id] = True
+    await message.reply_text("🛑 Stopping current processing...")
+    logger.info(f"User {user_id} requested to stop processing")
 
 @app.on_message(filters.document)
-async def handle_file(client: Client, message: Message):
-    if not message.document.file_name.endswith(".txt"):
-        await message.reply_text("Please upload a .txt file.")
+async def handle_txt_file(client: Client, message: Message):
+    if not message.document.file_name.endswith('.txt'):
+        await message.reply_text("❌ Please upload a .txt file containing your links.")
         return
-
-    user = message.from_user
-    user_id = user.id
     
-    # Generate access code
-    access_code = generate_access_code()
+    user_id = message.from_user.id
+    stop_flags[user_id] = False
     
-    # Get user details
-    try:
-        user_details = await get_user_details(client, user)
-    except Exception as e:
-        print(f"Error getting user details: {e}")
-        user_details = [
-            ("🆔 User ID", str(user.id)),
-            ("👤 Username", f"@{user.username}" if user.username else "🚫 None"),
-            ("👔 First Name", user.first_name or "🚫 None"),
-            ("👖 Last Name", user.last_name or "🚫 None")
-        ]
-
-    # Download and process file
-    file_path = await message.download()
-    file_name = message.document.file_name
-    html_path = ""
+    status_msg = await message.reply_text("📥 Downloading your text file...")
     
     try:
-        with open(file_path, "r", encoding='utf-8') as f:
-            file_content = f.read()
-
-        urls = extract_names_and_urls(file_content)
-        videos, pdfs, others = categorize_urls(urls)
-
-        # Generate HTML
-        html_content = generate_html(file_name, videos, pdfs, others, user_id, access_code, user_details)
-        html_path = file_path.replace(".txt", ".html")
-        with open(html_path, "w", encoding='utf-8') as f:
-            f.write(html_content)
-
-        # Prepare caption
-        caption = f"""🔐 Secure HTML File\n\n"""
-        caption += "\n".join(f"{label}: {value}" for label, value in user_details[:4])
-        caption += f"\n\n🔑 Access Code: <code>{access_code}</code>\n\n"
-        caption += "⚠️ Important:\n"
-        caption += "1. Do NOT share this file with anyone\n"
-        caption += "2. The access code will be required to view content\n"
-        caption += "3. The file is tied to your User ID only"
-
-        # Download thumbnail
-        thumbnail_path = None
-        try:
-            thumbnail_response = requests.get(DEFAULT_THUMBNAIL, timeout=10)
-            if thumbnail_response.status_code == 200:
-                thumbnail_path = "thumbnail.jpg"
-                with open(thumbnail_path, "wb") as f:
-                    f.write(thumbnail_response.content)
-        except Exception as e:
-            print(f"Error downloading thumbnail: {e}")
-
-        # Send to user
-        await message.reply_document(
-            document=html_path,
-            file_name=f"secure_{os.path.splitext(file_name)[0]}.html",
-            caption=caption,
-            thumb=thumbnail_path if thumbnail_path else None
+        temp_dir = "temp_files"
+        os.makedirs(temp_dir, exist_ok=True)
+        txt_path = os.path.join(temp_dir, f"links_{user_id}.txt")
+        
+        await message.download(file_name=txt_path)
+        
+        with open(txt_path, 'r', encoding='utf-8') as f:
+            lines = [line.strip() for line in f.readlines() if line.strip()]
+        
+        if not lines:
+            await status_msg.edit_text("❌ The text file is empty.")
+            return
+        
+        await status_msg.edit_text(
+            f"📝 Found {len(lines)} links in your file.\n\n"
+            f"Please reply with the range you want to download (e.g., '1-10' or '5' for single file)."
         )
-
+        
+        user_data[user_id] = {
+            'txt_path': txt_path,
+            'lines': lines,
+            'processed_files': [],
+            'failed_downloads': []
+        }
+        
     except Exception as e:
+        logger.error(f"Error processing text file: {e}")
         await message.reply_text(f"❌ Error processing file: {str(e)}")
-    finally:
-        # Cleanup
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        if html_path and os.path.exists(html_path):
-            os.remove(html_path)
-        if thumbnail_path and os.path.exists(thumbnail_path):
-            os.remove(thumbnail_path)
+        if 'status_msg' in locals():
+            await status_msg.delete()
 
-@app.on_callback_query(filters.regex("^help$"))
-async def help_handler(client, callback):
-    await callback.answer()
-    await callback.message.edit_text(
-        "📚 Help Guide\n\n"
-        "1. Prepare a .txt file with content like:\n"
-        "<code>Lecture 1:https://example.com/video1.mp4\n"
-        "Notes:https://example.com/notes.pdf</code>\n\n"
-        "2. Send the file to this bot\n"
-        "3. You'll receive a secure HTML file\n"
-        "4. To access content, you'll need:\n"
-        "   - Your User ID\n"
-        "   - The Access Code provided\n\n"
-        "🔒 The file cannot be used by anyone else",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back", callback_data="back")]])
-    )
+async def process_single_download(client, message, user_id, idx):
+    """Process a single download item"""
+    line = user_data[user_id]['lines'][idx]
+    video_name, url, key = extract_url_info(line)
+    count = idx + 1
+    
+    if not url:
+        failed_item = {
+            'number': count,
+            'name': video_name,
+            'url': 'Invalid URL format',
+            'error': 'Could not extract valid URL'
+        }
+        user_data[user_id]['failed_downloads'].append(failed_item)
+        await message.reply_text(create_failure_message(failed_item))
+        return False
+        
+    try:
+        temp_dir = "temp_files"
+        encrypted_path = os.path.join(temp_dir, f"temp_{user_id}_{idx}.tmp")
+        
+        # Download with aria2
+        if not download_with_aria2(url, encrypted_path):
+            raise Exception("Download failed after retries")
+            
+        # Decrypt if key exists
+        if key:
+            if not decrypt_file(encrypted_path, key):
+                raise Exception("Decryption failed - invalid key")
+        
+        # Determine file type and extension
+        ext = get_file_extension(url)
+        res = ""
+        
+        if video_name:
+            safe_name = "".join(c for c in video_name if c.isalnum() or c in (' ', '-', '_'))
+            final_filename = f"{safe_name}.{ext}" if ext else safe_name
+        else:
+            final_filename = f"file_{count}.{ext}" if ext else f"file_{count}"
+        
+        final_path = os.path.join(temp_dir, final_filename)
+        os.rename(encrypted_path, final_path)
+        user_data[user_id]['processed_files'].append(final_path)
+        
+        # Prepare caption
+        name1 = video_name or f"File {count}"
+        
+        if ext and is_video_file(ext):
+            caption = (
+                f"**🎞️ VID_ID: {str(count).zfill(3)}.\n\n"
+                f"📝 Title: {name1} {my_name} {res}.mkv\n\n"
+                f"📥 Extracted By : {CR}\n\n"
+                f"**━━━━━✦{my_name}✦━━━━━**"
+            )
+        elif ext and is_document_file(ext):
+            caption = (
+                f"**📁 PDF_ID: {str(count).zfill(3)}.\n\n"
+                f"📝 Title: {name1} {my_name}.pdf\n\n"
+                f"📥 Extracted By : {CR}\n\n"
+                f"**━━━━━✦{my_name}✦━━━━━**"
+            )
+        else:
+            caption = f"File #{count}: {name1}"
+        
+        # Send to user
+        try:
+            if ext and is_video_file(ext):
+                await message.reply_document(
+                    document=final_path,
+                    caption=caption
+                )
+            elif ext and is_document_file(ext):
+                await message.reply_document(
+                    document=final_path,
+                    caption=caption
+                )
+            else:
+                await message.reply_document(
+                    document=final_path,
+                    caption=caption
+                )
+            return True
+        except FloodWait as e:
+            await asyncio.sleep(e.value)
+            return False
+        except Exception as e:
+            raise Exception(f"Failed to send file: {str(e)}")
+            
+    except Exception as e:
+        failed_item = {
+            'number': count,
+            'name': video_name,
+            'url': url,
+            'error': str(e)
+        }
+        user_data[user_id]['failed_downloads'].append(failed_item)
+        await message.reply_text(create_failure_message(failed_item))
+        return False
 
-@app.on_callback_query(filters.regex("^back$"))
-async def back_handler(client, callback):
-    await callback.answer()
-    await callback.message.edit_text(
-        "🔒 Secure HTML Generator Bot\n\n"
-        "Send me a .txt file with content in format:\n"
-        "<code>Name:URL</code>\n\n"
-        f"Your User ID: <code>{callback.from_user.id}</code>\n"
-        "This ID will be required to access your generated files.",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Help", callback_data="help")]])
-    )
+@app.on_message(filters.text & ~filters.command(["start", "stop"]))
+async def handle_range_selection(client: Client, message: Message):
+    user_id = message.from_user.id
+    
+    if user_id not in user_data:
+        return
+    
+    if not message.text.strip():
+        return
+    
+    try:
+        range_input = message.text.strip()
+        if '-' in range_input:
+            start, end = map(int, range_input.split('-'))
+        else:
+            start = end = int(range_input)
+        
+        lines = user_data[user_id]['lines']
+        if start < 1 or end > len(lines) or start > end:
+            await message.reply_text(f"❌ Invalid range. Please enter between 1 and {len(lines)}")
+            return
+        
+        processing_msg = await message.reply_text(f"⏳ Starting download from line {start} to {end}...")
+        success_count = 0
+        
+        # Process downloads in parallel with limited concurrency
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
+        
+        async def process_item(idx):
+            nonlocal success_count
+            async with semaphore:
+                if stop_flags.get(user_id, False):
+                    return
+                
+                await processing_msg.edit_text(f"⏳ Downloading #{idx+1}: {user_data[user_id]['lines'][idx].split(':')[0] or 'Unnamed file'}")
+                if await process_single_download(client, message, user_id, idx):
+                    success_count += 1
+        
+        tasks = [process_item(i) for i in range(start-1, end)]
+        await asyncio.gather(*tasks)
+        
+        # Final message
+        await processing_msg.edit_text(f"✅ Finished processing {success_count} files")
+        
+        # Clean up processed files
+        if user_id in user_data and 'processed_files' in user_data[user_id]:
+            for file_path in user_data[user_id]['processed_files']:
+                try:
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                except:
+                    pass
+        
+        # Report failures if any
+        if user_data[user_id]['failed_downloads']:
+            failed_count = len(user_data[user_id]['failed_downloads'])
+            await message.reply_text(f"⚠️ {failed_count} downloads failed. Check previous messages for details.")
+        
+        stop_flags[user_id] = False
+        
+    except ValueError:
+        await message.reply_text("❌ Invalid input. Please enter numbers like '1-10' or '5'")
+    except Exception as e:
+        logger.error(f"Error in range processing: {e}")
+        await message.reply_text(f"❌ Error during processing: {str(e)}")
 
 if __name__ == "__main__":
-    print("✅ Secure HTML Bot is running...")
+    # Create temp directory if not exists
+    os.makedirs("temp_files", exist_ok=True)
+    logger.info("Bot is running with aria2 integration...")
     app.run()
