@@ -194,7 +194,7 @@ async def reply_callback(client: Client, callback_query):
     )
 
 # Handle owner's replies
-@app.on_message(filters.private & filters.user(OWNER_ID) & ~filters.command())
+@app.on_message(filters.private & filters.user(OWNER_ID) & ~filters.command(["start", "help", "stats", "broadcast", "clone"]))
 async def handle_owner_reply(client: Client, message: Message):
     if message.reply_to_message:
         replied_msg_id = message.reply_to_message.id
