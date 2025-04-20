@@ -1,3 +1,4 @@
+
 import os
 import asyncio
 from pyrogram import Client, filters
@@ -18,7 +19,7 @@ API_HASH = os.getenv("API_HASH", "c5bb241f6e3ecf33fe68a444e288de2d")  # Your API
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7889175265:AAFzVLUGL58n5mh2z9Adap-EC634F4T_FVo")  # Your bot token from @BotFather
 OWNER_ID = int(os.getenv("OWNER_ID", "5957208798"))  # Your user ID
 
-# Database to store user info (in a real app, use a proper database)
+# Database to store user info
 users_db = {}
 
 app = Client(
@@ -90,7 +91,7 @@ async def broadcast_command(client: Client, message: Message):
         except RPCError as e:
             logger.error(f"Failed to send to {user_id}: {e}")
             failed += 1
-        await asyncio.sleep(0.1)  # Prevent flooding
+        await asyncio.sleep(0.1)
     
     await message.reply_text(
         f"📢 Broadcast completed!\n\n"
@@ -109,7 +110,6 @@ async def clone_command(client: Client, message: Message):
     new_token = message.command[1]
     
     try:
-        # Create a new client with the new token
         new_client = Client(
             "cloned_bot",
             api_id=API_ID,
@@ -130,19 +130,16 @@ async def clone_command(client: Client, message: Message):
     except RPCError as e:
         await message.reply_text(f"❌ Failed to clone bot: {e}")
 
-# Handle all incoming messages
-@app.on_message(filters.private & ~filters.command())
+# Handle all incoming non-command messages
+@app.on_message(filters.private & ~filters.command(["start", "help", "stats", "broadcast", "clone"]))
 async def handle_message(client: Client, message: Message):
     user_id = message.from_user.id
     
-    # Store user if not already in DB
     if user_id not in users_db:
         users_db[user_id] = message.from_user.first_name
     
-    # Forward messages from users to owner (except owner's messages)
     if user_id != OWNER_ID:
         try:
-            # Forward the message to owner with a reply button
             forwarded = await message.forward(OWNER_ID)
             await client.send_message(
                 OWNER_ID,
@@ -157,7 +154,7 @@ async def handle_message(client: Client, message: Message):
             await message.reply_text("❌ Failed to send your message. Please try again later.")
             logger.error(f"Failed to forward message: {e}")
 
-# Handle callback queries (for reply button)
+# Handle callback queries
 @app.on_callback_query(filters.regex("^reply_"))
 async def reply_callback(client: Client, callback_query):
     owner_id = callback_query.from_user.id
@@ -168,19 +165,17 @@ async def reply_callback(client: Client, callback_query):
     user_id = int(callback_query.data.split("_")[1])
     await callback_query.answer()
     
-    # Ask owner for reply message
     await callback_query.message.reply_text(
         f"💬 Enter your reply for user ID {user_id}:",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🚫 Cancel", callback_data=f"cancel_reply")
+            InlineKeyboardButton("🚫 Cancel", callback_data="cancel_reply")
         ]])
     )
     
-    # Store the user_id we're replying to in a temporary state
     client.user_reply_state = user_id
 
-# Handle owner's reply
-@app.on_message(filters.private & filters.user(OWNER_ID) & ~filters.command())
+# Handle owner's replies
+@app.on_message(filters.private & filters.user(OWNER_ID) & ~filters.command(["start", "help", "stats", "broadcast", "clone"]))
 async def handle_owner_reply(client: Client, message: Message):
     if hasattr(client, 'user_reply_state'):
         user_id = client.user_reply_state
@@ -200,7 +195,6 @@ async def cancel_reply(client: Client, callback_query):
     await callback_query.message.edit_text("🚫 Reply cancelled.")
     await callback_query.answer()
 
-# Start the bot
 if __name__ == "__main__":
     logger.info("Starting bot...")
     app.run()
