@@ -17,9 +17,9 @@ API_ID = int(os.getenv("API_ID", "21705536"))  # Your API ID from my.telegram.or
 API_HASH = os.getenv("API_HASH", "c5bb241f6e3ecf33fe68a444e288de2d")  # Your API Hash from my.telegram.org
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7889175265:AAFzVLUGL58n5mh2z9Adap-EC634F4T_FVo")  # Your bot token from @BotFather
 OWNER_ID = int(os.getenv("OWNER_ID", "5957208798"))  # Your user ID
-
-# In-memory database for users
+# In-memory user database and forward mapping
 users_db = {}
+forwarded_map = {}  # Maps forwarded_msg_id -> original_user_id
 
 # -------------------- Bot Factory --------------------
 def create_bot(token: str, session_name: str = "livegram_bot"):
@@ -34,12 +34,10 @@ def create_bot(token: str, session_name: str = "livegram_bot"):
 # -------------------- Handler Registration --------------------
 def register_handlers(bot: Client):
 
-    # /start
     @bot.on_message(filters.command("start") & filters.private)
     async def start(_, message: Message):
         user_id = message.from_user.id
         users_db[user_id] = message.from_user.first_name
-
         welcome = (
             "🤖 **Welcome to LiveGram Bot**\n\n"
             "I can help you send and receive all types of Telegram messages.\n\n"
@@ -51,7 +49,6 @@ def register_handlers(bot: Client):
         )
         await message.reply_text(welcome)
 
-    # /help
     @bot.on_message(filters.command("help") & filters.private)
     async def help_command(_, message: Message):
         help_text = (
@@ -66,13 +63,11 @@ def register_handlers(bot: Client):
         )
         await message.reply_text(help_text)
 
-    # /stats
     @bot.on_message(filters.command("stats") & filters.private & filters.user(OWNER_ID))
     async def stats(_, message: Message):
         total_users = len(users_db)
         await message.reply_text(f"📊 **Bot Stats**\n\nTotal users: {total_users}")
 
-    # /broadcast
     @bot.on_message(filters.command("broadcast") & filters.private & filters.user(OWNER_ID))
     async def broadcast(_, message: Message):
         if len(message.command) < 2:
@@ -98,7 +93,6 @@ def register_handlers(bot: Client):
             f"Total: {total}\nSent: {success}\nFailed: {failed}"
         )
 
-    # /clone
     @bot.on_message(filters.command("clone") & filters.private & filters.user(OWNER_ID))
     async def clone(_, message: Message):
         if len(message.command) < 2:
@@ -114,7 +108,6 @@ def register_handlers(bot: Client):
         except Exception as e:
             await message.reply(f"❌ Failed to clone bot: {e}")
 
-    # Handle incoming user messages (non-commands)
     @bot.on_message(filters.private & ~filters.command(["start", "help", "stats", "broadcast", "clone"]))
     async def handle_user(_, message: Message):
         uid = message.from_user.id
@@ -122,17 +115,17 @@ def register_handlers(bot: Client):
             users_db[uid] = message.from_user.first_name
         if uid != OWNER_ID:
             try:
-                await message.forward(OWNER_ID)
-                await message.reply("✅ Message sent to the admin.")
+                forwarded = await message.forward(OWNER_ID)
+                forwarded_map[forwarded.id] = uid
+                # No message sent to user (silent)
             except Exception as e:
                 logger.error(f"Forward failed: {e}")
                 await message.reply("❌ Couldn't forward message.")
 
-    # Owner replies to forwarded messages
     @bot.on_message(filters.private & filters.user(OWNER_ID))
     async def owner_reply(_, message: Message):
-        if message.reply_to_message and message.reply_to_message.forward_from:
-            user_id = message.reply_to_message.forward_from.id
+        if message.reply_to_message and message.reply_to_message.message_id in forwarded_map:
+            user_id = forwarded_map[message.reply_to_message.message_id]
             try:
                 await message.copy(user_id)
                 await message.reply("✅ Reply sent.")
