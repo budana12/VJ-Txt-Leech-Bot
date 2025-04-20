@@ -131,7 +131,7 @@ async def clone_command(client: Client, message: Message):
         await message.reply_text(f"❌ Failed to clone bot: {e}")
 
 # Handle all incoming messages
-@app.on_message(filters.private & ~filters.command)
+@app.on_message(filters.private & ~filters.command())
 async def handle_message(client: Client, message: Message):
     user_id = message.from_user.id
     
@@ -180,7 +180,7 @@ async def reply_callback(client: Client, callback_query):
     client.user_reply_state = user_id
 
 # Handle owner's reply
-@app.on_message(filters.private & filters.user(OWNER_ID) & ~filters.command)
+@app.on_message(filters.private & filters.user(OWNER_ID) & ~filters.command())
 async def handle_owner_reply(client: Client, message: Message):
     if hasattr(client, 'user_reply_state'):
         user_id = client.user_reply_state
