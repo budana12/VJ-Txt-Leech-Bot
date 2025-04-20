@@ -17,7 +17,6 @@ API_ID = int(os.getenv("API_ID", "21705536"))  # Your API ID from my.telegram.or
 API_HASH = os.getenv("API_HASH", "c5bb241f6e3ecf33fe68a444e288de2d")  # Your API Hash from my.telegram.org
 BOT_TOKEN = os.getenv("BOT_TOKEN", "7889175265:AAFzVLUGL58n5mh2z9Adap-EC634F4T_FVo")  # Your bot token from @BotFather
 OWNER_ID = int(os.getenv("OWNER_ID", "5957208798"))  # Your user ID
-
 # Database to store user info and chat states
 users_db = {}
 active_chats = {}  # {owner_msg_id: {"user_id": user_id, "user_msg_id": user_msg_id}}
@@ -28,6 +27,9 @@ app = Client(
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
+
+# List of all commands to exclude from message handling
+BOT_COMMANDS = ["start", "help", "clone", "broadcast", "stats"]
 
 async def clone_bot(new_token):
     """Function to properly clone the bot"""
@@ -47,7 +49,10 @@ async def clone_bot(new_token):
         # Set up basic commands for the new bot
         await new_client.set_bot_commands([
             ("start", "Start the bot"),
-            ("help", "Show help message")
+            ("help", "Show help message"),
+            ("clone", "Clone this bot (owner only)"),
+            ("broadcast", "Broadcast message (owner only)"),
+            ("stats", "Show bot stats (owner only)")
         ])
         
         await new_client.stop()
@@ -82,12 +87,16 @@ async def help_command(client: Client, message: Message):
         "🛠 **Available Commands**\n\n"
         "/start - Start the bot\n"
         "/help - Show this help message\n\n"
+        "**Owner Commands:**\n"
+        "/clone - Clone this bot\n"
+        "/broadcast - Broadcast message\n"
+        "/stats - Show bot stats\n\n"
         "Just send any message to chat with the bot owner."
     )
     await message.reply_text(help_text)
 
-# Handle all incoming messages from users
-@app.on_message(filters.private & ~filters.command())
+# Handle all incoming messages from users (excluding commands)
+@app.on_message(filters.private & ~filters.command(BOT_COMMANDS))
 async def handle_user_message(client: Client, message: Message):
     user_id = message.from_user.id
     
@@ -157,6 +166,43 @@ async def clone_command(client: Client, message: Message):
         )
     except Exception as e:
         await message.reply_text(f"❌ Failed to clone bot: {str(e)}")
+
+# Broadcast command (owner only)
+@app.on_message(filters.command("broadcast") & filters.private & filters.user(OWNER_ID))
+async def broadcast_command(client: Client, message: Message):
+    if len(message.command) < 2:
+        await message.reply_text("Usage: /broadcast <message>")
+        return
+    
+    broadcast_text = message.text.split(None, 1)[1]
+    total = 0
+    successful = 0
+    failed = 0
+    
+    await message.reply_text("📢 Starting broadcast...")
+    
+    for user_id in users_db:
+        total += 1
+        try:
+            await client.send_message(user_id, broadcast_text)
+            successful += 1
+        except RPCError as e:
+            logger.error(f"Failed to send to {user_id}: {e}")
+            failed += 1
+        await asyncio.sleep(0.1)
+    
+    await message.reply_text(
+        f"📢 Broadcast completed!\n\n"
+        f"Total users: {total}\n"
+        f"Successful: {successful}\n"
+        f"Failed: {failed}"
+    )
+
+# Stats command (owner only)
+@app.on_message(filters.command("stats") & filters.private & filters.user(OWNER_ID))
+async def stats(client: Client, message: Message):
+    total_users = len(users_db)
+    await message.reply_text(f"📊 **Bot Statistics**\n\nTotal Users: {total_users}")
 
 if __name__ == "__main__":
     logger.info("Starting bot...")
