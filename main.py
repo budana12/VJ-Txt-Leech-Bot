@@ -1,4 +1,3 @@
-
 import os
 import asyncio
 from pyrogram import Client, filters
@@ -21,6 +20,7 @@ OWNER_ID = int(os.getenv("OWNER_ID", "5957208798"))  # Your user ID
 
 # Database to store user info
 users_db = {}
+reply_states = {}  # Store reply states separately
 
 app = Client(
     "livegram_bot",
@@ -28,6 +28,35 @@ app = Client(
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
+
+async def clone_bot_features(new_token):
+    """Function to clone all features to new bot"""
+    try:
+        new_client = Client(
+            "cloned_bot_session",
+            api_id=API_ID,
+            api_hash=API_HASH,
+            bot_token=new_token,
+            in_memory=True
+        )
+        
+        await new_client.start()
+        
+        # Set up basic commands for the new bot
+        await new_client.set_bot_commands([
+            ("start", "Start the bot"),
+            ("help", "Show help message"),
+            ("broadcast", "Broadcast message (owner only)"),
+            ("stats", "Show bot stats (owner only)"),
+            ("clone", "Clone this bot (owner only)")
+        ])
+        
+        bot_info = await new_client.get_me()
+        await new_client.stop()
+        return bot_info
+    except Exception as e:
+        logger.error(f"Error cloning bot: {e}")
+        raise
 
 # Start command
 @app.on_message(filters.command("start") & filters.private)
@@ -110,20 +139,9 @@ async def clone_command(client: Client, message: Message):
     new_token = message.command[1]
     
     try:
-        new_client = Client(
-            "cloned_bot",
-            api_id=API_ID,
-            api_hash=API_HASH,
-            bot_token=new_token,
-            in_memory=True
-        )
-        
-        await new_client.start()
-        bot_info = await new_client.get_me()
-        await new_client.stop()
-        
+        bot_info = await clone_bot_features(new_token)
         await message.reply_text(
-            f"✅ Bot cloned successfully!\n\n"
+            f"✅ Bot cloned successfully with all features!\n\n"
             f"New bot: @{bot_info.username}\n"
             f"Token: `{new_token}`"
         )
@@ -165,33 +183,36 @@ async def reply_callback(client: Client, callback_query):
     user_id = int(callback_query.data.split("_")[1])
     await callback_query.answer()
     
+    # Store reply state with message ID to handle the response
+    reply_states[callback_query.message.id] = user_id
+    
     await callback_query.message.reply_text(
         f"💬 Enter your reply for user ID {user_id}:",
         reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("🚫 Cancel", callback_data="cancel_reply")
+            InlineKeyboardButton("🚫 Cancel", callback_data=f"cancel_reply_{callback_query.message.id}")
         ]])
     )
-    
-    client.user_reply_state = user_id
 
 # Handle owner's replies
-@app.on_message(filters.private & filters.user(OWNER_ID) & ~filters.command(["start", "help", "stats", "broadcast", "clone"]))
+@app.on_message(filters.private & filters.user(OWNER_ID) & ~filters.command())
 async def handle_owner_reply(client: Client, message: Message):
-    if hasattr(client, 'user_reply_state'):
-        user_id = client.user_reply_state
-        try:
-            await message.copy(user_id)
-            await message.reply_text("✅ Reply sent successfully!")
-        except RPCError as e:
-            await message.reply_text(f"❌ Failed to send reply: {e}")
-        finally:
-            del client.user_reply_state
+    if message.reply_to_message:
+        replied_msg_id = message.reply_to_message.id
+        if replied_msg_id in reply_states:
+            user_id = reply_states[replied_msg_id]
+            try:
+                await message.copy(user_id)
+                await message.reply_text("✅ Reply sent successfully!")
+                del reply_states[replied_msg_id]
+            except RPCError as e:
+                await message.reply_text(f"❌ Failed to send reply: {e}")
 
 # Handle cancel reply
-@app.on_callback_query(filters.regex("^cancel_reply$"))
+@app.on_callback_query(filters.regex("^cancel_reply_"))
 async def cancel_reply(client: Client, callback_query):
-    if hasattr(client, 'user_reply_state'):
-        del client.user_reply_state
+    msg_id = int(callback_query.data.split("_")[2])
+    if msg_id in reply_states:
+        del reply_states[msg_id]
     await callback_query.message.edit_text("🚫 Reply cancelled.")
     await callback_query.answer()
 
