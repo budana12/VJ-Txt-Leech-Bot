@@ -1,14 +1,9 @@
-#!/usr/bin/env python3
 import os
-import mmap
-import time
-import logging
 import asyncio
-import subprocess
 from pyrogram import Client, filters
-from pyrogram.types import Message
-from pyrogram.errors import FloodWait
-from tenacity import retry, stop_after_attempt, wait_exponential
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram.errors import RPCError
+import logging
 
 # Configure logging
 logging.basicConfig(
@@ -17,365 +12,195 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot configuration (replace with your values)
-API_ID = 21705536
-API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
-BOT_TOKEN = "8193765546:AAEs_Ul-zoQKAto5-I8vYJpGSZgDEa-POeU"
+# Bot configuration
+API_ID = int(os.getenv("API_ID", "21705536"))  # Your API ID from my.telegram.org
+API_HASH = os.getenv("API_HASH", "c5bb241f6e3ecf33fe68a444e288de2d")  # Your API Hash from my.telegram.org
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7889175265:AAFzVLUGL58n5mh2z9Adap-EC634F4T_FVo")  # Your bot token from @BotFather
+OWNER_ID = int(os.getenv("OWNER_ID", "5957208798"))  # Your user ID
 
-# Constants
-MAX_FILE_SIZE = 2000 * 1024 * 1024  # 2GB Telegram limit
-SUPPORTED_VIDEO_EXTENSIONS = ['mp4', 'mkv', 'mov', 'avi', 'webm']
-SUPPORTED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt']
-MAX_CONCURRENT_DOWNLOADS = 4  # Number of parallel downloads
-ARIA2_CONNECTIONS = 16  # Connections per download
+# Database to store user info (in a real app, use a proper database)
+users_db = {}
 
-# Customize these as needed
-CR = "𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚"  # Credit/Extracted By
-my_name = "𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚"  # Your name for captions
+app = Client(
+    "livegram_bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
 
-# Initialize the Pyrogram client
-app = Client("file_decryptor_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-# Global variables to store user data
-user_data = {}
-stop_flags = {}
-
-def download_with_aria2(url, save_path):
-    """Download file using aria2 with multiple connections"""
-    try:
-        logger.info(f"Starting aria2 download for: {url}")
-        
-        command = [
-            'aria2c',
-            url,
-            '-o', save_path,
-            '-x', str(ARIA2_CONNECTIONS),
-            '-s', str(ARIA2_CONNECTIONS),
-            '-j', str(ARIA2_CONNECTIONS),
-            '--max-tries=5',
-            '--retry-wait=5',
-            '--timeout=60',
-            '--connect-timeout=60',
-            '--check-certificate=false',
-            '--allow-overwrite=true',
-            '--auto-file-renaming=false',
-            '--quiet'
-        ]
-        
-        result = subprocess.run(command, check=True, capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            logger.error(f"aria2 download failed: {result.stderr}")
-            return False
-            
-        logger.info(f"Download completed successfully to: {save_path}")
-        return True
-        
-    except subprocess.CalledProcessError as e:
-        logger.error(f"aria2 download error: {e.stderr}")
-        return False
-    except Exception as e:
-        logger.error(f"Error in aria2 download: {str(e)}")
-        return False
-
-def extract_url_info(line):
-    """Extract video name, url and key from a line with validation"""
-    if not line or 'http' not in line:
-        return None, None, None
+# Start command
+@app.on_message(filters.command("start") & filters.private)
+async def start(client: Client, message: Message):
+    user_id = message.from_user.id
+    users_db[user_id] = message.from_user.first_name
     
-    try:
-        parts = line.split('http', 1)
-        video_name = parts[0].strip(' :')
-        url_part = 'http' + parts[1].strip() if len(parts) > 1 else None
-        
-        if not url_part:
-            return None, None, None
-        
-        parsed = requests.utils.urlparse(url_part.split('*')[0])
-        if not all([parsed.scheme, parsed.netloc]):
-            return None, None, None
-        
-        if '*' in url_part:
-            base_url, key = url_part.split('*', 1)
-            return video_name, base_url.strip(), key.strip()
-        
-        return video_name, url_part.strip(), None
-        
-    except Exception as e:
-        logger.error(f"Error parsing line: {e}")
-        return None, None, None
-
-def decrypt_file(file_path, key):
-    if not os.path.exists(file_path):
-        logger.error("Encrypted file not found!")
-        return False
+    welcome_text = (
+        "🤖 **Welcome to LiveGram Bot**\n\n"
+        "I can help you send and receive all types of Telegram messages.\n\n"
+        "**Features:**\n"
+        "- Send/receive text, photos, videos, documents, etc.\n"
+        "- Broadcast messages to all users (owner only)\n"
+        "- Clone bots using /clone command (owner only)\n\n"
+        "Use /help to see available commands."
+    )
     
-    try:
-        logger.info(f"Decrypting file: {file_path} with key: {key}")
-        with open(file_path, "r+b") as f:
-            num_bytes = min(28, os.path.getsize(file_path))
-            with mmap.mmap(f.fileno(), length=num_bytes, access=mmap.ACCESS_WRITE) as mmapped_file:
-                for i in range(num_bytes):
-                    mmapped_file[i] ^= ord(key[i % len(key)])
-        logger.info("Decryption completed successfully!")
-        return True
-    except Exception as e:
-        logger.error(f"Error during decryption: {e}")
-        return False
+    await message.reply_text(welcome_text)
 
-def get_file_extension(url):
-    """Extract file extension from URL"""
-    filename = url.split('?')[0].split('#')[0].split('/')[-1]
-    if '.' in filename:
-        return filename.split('.')[-1].lower()
-    return None
+# Help command
+@app.on_message(filters.command("help") & filters.private)
+async def help_command(client: Client, message: Message):
+    help_text = (
+        "🛠 **Available Commands**\n\n"
+        "**For all users:**\n"
+        "/start - Start the bot\n"
+        "/help - Show this help message\n\n"
+        "**For owner only:**\n"
+        "/broadcast - Broadcast a message to all users\n"
+        "/stats - Show bot statistics\n"
+        "/clone - Clone this bot with a new token"
+    )
+    
+    await message.reply_text(help_text)
 
-def is_video_file(extension):
-    return extension in SUPPORTED_VIDEO_EXTENSIONS
+# Stats command (owner only)
+@app.on_message(filters.command("stats") & filters.private & filters.user(OWNER_ID))
+async def stats(client: Client, message: Message):
+    total_users = len(users_db)
+    await message.reply_text(f"📊 **Bot Statistics**\n\nTotal Users: {total_users}")
 
-def is_document_file(extension):
-    return extension in SUPPORTED_DOCUMENT_EXTENSIONS
-
-def create_failure_message(item):
-    """Create a formatted failure message for a single item"""
-    message = "❌ Download Failed\n\n"
-    message += f"🔢 File Number: #{item['number']}\n"
-    message += f"📛 Name: {item['name'] or 'Unnamed'}\n"
-    message += f"🔗 URL: {item['url']}\n"
-    message += f"❗ Error: {item['error']}\n"
-    return message
-
-@app.on_message(filters.command("start"))
-async def start_command(client: Client, message: Message):
+# Broadcast command (owner only)
+@app.on_message(filters.command("broadcast") & filters.private & filters.user(OWNER_ID))
+async def broadcast_command(client: Client, message: Message):
+    if len(message.command) < 2:
+        await message.reply_text("Usage: /broadcast <message>")
+        return
+    
+    broadcast_text = message.text.split(None, 1)[1]
+    total = 0
+    successful = 0
+    failed = 0
+    
+    await message.reply_text("📢 Starting broadcast...")
+    
+    for user_id in users_db:
+        total += 1
+        try:
+            await client.send_message(user_id, broadcast_text)
+            successful += 1
+        except RPCError as e:
+            logger.error(f"Failed to send to {user_id}: {e}")
+            failed += 1
+        await asyncio.sleep(0.1)  # Prevent flooding
+    
     await message.reply_text(
-        "👋 Hello! I'm a file download bot with aria2 integration.\n\n"
-        "📁 Upload a .txt file containing your links in this format:\n\n"
-        "`Video Name:https://example.com/encrypted.mp4*mysecretkey`\n\n"
-        "Or simply:\n"
-        "`Video Name:https://example.com/file.mp4`\n\n"
-        "Each link should be on a new line. I'll process all valid links.\n\n"
-        "Commands:\n"
-        "/start - Show this message\n"
-        "/stop - Stop current processing"
+        f"📢 Broadcast completed!\n\n"
+        f"Total users: {total}\n"
+        f"Successful: {successful}\n"
+        f"Failed: {failed}"
     )
 
-@app.on_message(filters.command("stop"))
-async def stop_command(client: Client, message: Message):
-    user_id = message.from_user.id
-    stop_flags[user_id] = True
-    await message.reply_text("🛑 Stopping current processing...")
-    logger.info(f"User {user_id} requested to stop processing")
-
-@app.on_message(filters.document)
-async def handle_txt_file(client: Client, message: Message):
-    if not message.document.file_name.endswith('.txt'):
-        await message.reply_text("❌ Please upload a .txt file containing your links.")
+# Clone command (owner only)
+@app.on_message(filters.command("clone") & filters.private & filters.user(OWNER_ID))
+async def clone_command(client: Client, message: Message):
+    if len(message.command) < 2:
+        await message.reply_text("Usage: /clone <new_bot_token>")
         return
     
-    user_id = message.from_user.id
-    stop_flags[user_id] = False
-    
-    status_msg = await message.reply_text("📥 Downloading your text file...")
+    new_token = message.command[1]
     
     try:
-        temp_dir = "temp_files"
-        os.makedirs(temp_dir, exist_ok=True)
-        txt_path = os.path.join(temp_dir, f"links_{user_id}.txt")
-        
-        await message.download(file_name=txt_path)
-        
-        with open(txt_path, 'r', encoding='utf-8') as f:
-            lines = [line.strip() for line in f.readlines() if line.strip()]
-        
-        if not lines:
-            await status_msg.edit_text("❌ The text file is empty.")
-            return
-        
-        await status_msg.edit_text(
-            f"📝 Found {len(lines)} links in your file.\n\n"
-            f"Please reply with the range you want to download (e.g., '1-10' or '5' for single file)."
+        # Create a new client with the new token
+        new_client = Client(
+            "cloned_bot",
+            api_id=API_ID,
+            api_hash=API_HASH,
+            bot_token=new_token,
+            in_memory=True
         )
         
-        user_data[user_id] = {
-            'txt_path': txt_path,
-            'lines': lines,
-            'processed_files': [],
-            'failed_downloads': []
-        }
+        await new_client.start()
+        bot_info = await new_client.get_me()
+        await new_client.stop()
         
-    except Exception as e:
-        logger.error(f"Error processing text file: {e}")
-        await message.reply_text(f"❌ Error processing file: {str(e)}")
-        if 'status_msg' in locals():
-            await status_msg.delete()
+        await message.reply_text(
+            f"✅ Bot cloned successfully!\n\n"
+            f"New bot: @{bot_info.username}\n"
+            f"Token: `{new_token}`"
+        )
+    except RPCError as e:
+        await message.reply_text(f"❌ Failed to clone bot: {e}")
 
-async def process_single_download(client, message, user_id, idx):
-    """Process a single download item"""
-    line = user_data[user_id]['lines'][idx]
-    video_name, url, key = extract_url_info(line)
-    count = idx + 1
-    
-    if not url:
-        failed_item = {
-            'number': count,
-            'name': video_name,
-            'url': 'Invalid URL format',
-            'error': 'Could not extract valid URL'
-        }
-        user_data[user_id]['failed_downloads'].append(failed_item)
-        await message.reply_text(create_failure_message(failed_item))
-        return False
-        
-    try:
-        temp_dir = "temp_files"
-        encrypted_path = os.path.join(temp_dir, f"temp_{user_id}_{idx}.tmp")
-        
-        # Download with aria2
-        if not download_with_aria2(url, encrypted_path):
-            raise Exception("Download failed after retries")
-            
-        # Decrypt if key exists
-        if key:
-            if not decrypt_file(encrypted_path, key):
-                raise Exception("Decryption failed - invalid key")
-        
-        # Determine file type and extension
-        ext = get_file_extension(url)
-        res = ""
-        
-        if video_name:
-            safe_name = "".join(c for c in video_name if c.isalnum() or c in (' ', '-', '_'))
-            final_filename = f"{safe_name}.{ext}" if ext else safe_name
-        else:
-            final_filename = f"file_{count}.{ext}" if ext else f"file_{count}"
-        
-        final_path = os.path.join(temp_dir, final_filename)
-        os.rename(encrypted_path, final_path)
-        user_data[user_id]['processed_files'].append(final_path)
-        
-        # Prepare caption
-        name1 = video_name or f"File {count}"
-        
-        if ext and is_video_file(ext):
-            caption = (
-                f"**🎞️ VID_ID: {str(count).zfill(3)}.\n\n"
-                f"📝 Title: {name1} {my_name} {res}.mkv\n\n"
-                f"📥 Extracted By : {CR}\n\n"
-                f"**━━━━━✦{my_name}✦━━━━━**"
-            )
-        elif ext and is_document_file(ext):
-            caption = (
-                f"**📁 PDF_ID: {str(count).zfill(3)}.\n\n"
-                f"📝 Title: {name1} {my_name}.pdf\n\n"
-                f"📥 Extracted By : {CR}\n\n"
-                f"**━━━━━✦{my_name}✦━━━━━**"
-            )
-        else:
-            caption = f"File #{count}: {name1}"
-        
-        # Send to user
-        try:
-            if ext and is_video_file(ext):
-                await message.reply_document(
-                    document=final_path,
-                    caption=caption
-                )
-            elif ext and is_document_file(ext):
-                await message.reply_document(
-                    document=final_path,
-                    caption=caption
-                )
-            else:
-                await message.reply_document(
-                    document=final_path,
-                    caption=caption
-                )
-            return True
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
-            return False
-        except Exception as e:
-            raise Exception(f"Failed to send file: {str(e)}")
-            
-    except Exception as e:
-        failed_item = {
-            'number': count,
-            'name': video_name,
-            'url': url,
-            'error': str(e)
-        }
-        user_data[user_id]['failed_downloads'].append(failed_item)
-        await message.reply_text(create_failure_message(failed_item))
-        return False
-
-@app.on_message(filters.text & ~filters.command(["start", "stop"]))
-async def handle_range_selection(client: Client, message: Message):
+# Handle all incoming messages
+@app.on_message(filters.private & ~filters.command)
+async def handle_message(client: Client, message: Message):
     user_id = message.from_user.id
     
-    if user_id not in user_data:
-        return
+    # Store user if not already in DB
+    if user_id not in users_db:
+        users_db[user_id] = message.from_user.first_name
     
-    if not message.text.strip():
-        return
-    
-    try:
-        range_input = message.text.strip()
-        if '-' in range_input:
-            start, end = map(int, range_input.split('-'))
-        else:
-            start = end = int(range_input)
-        
-        lines = user_data[user_id]['lines']
-        if start < 1 or end > len(lines) or start > end:
-            await message.reply_text(f"❌ Invalid range. Please enter between 1 and {len(lines)}")
-            return
-        
-        processing_msg = await message.reply_text(f"⏳ Starting download from line {start} to {end}...")
-        success_count = 0
-        
-        # Process downloads in parallel with limited concurrency
-        semaphore = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
-        
-        async def process_item(idx):
-            nonlocal success_count
-            async with semaphore:
-                if stop_flags.get(user_id, False):
-                    return
-                
-                await processing_msg.edit_text(f"⏳ Downloading #{idx+1}: {user_data[user_id]['lines'][idx].split(':')[0] or 'Unnamed file'}")
-                if await process_single_download(client, message, user_id, idx):
-                    success_count += 1
-        
-        tasks = [process_item(i) for i in range(start-1, end)]
-        await asyncio.gather(*tasks)
-        
-        # Final message
-        await processing_msg.edit_text(f"✅ Finished processing {success_count} files")
-        
-        # Clean up processed files
-        if user_id in user_data and 'processed_files' in user_data[user_id]:
-            for file_path in user_data[user_id]['processed_files']:
-                try:
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                except:
-                    pass
-        
-        # Report failures if any
-        if user_data[user_id]['failed_downloads']:
-            failed_count = len(user_data[user_id]['failed_downloads'])
-            await message.reply_text(f"⚠️ {failed_count} downloads failed. Check previous messages for details.")
-        
-        stop_flags[user_id] = False
-        
-    except ValueError:
-        await message.reply_text("❌ Invalid input. Please enter numbers like '1-10' or '5'")
-    except Exception as e:
-        logger.error(f"Error in range processing: {e}")
-        await message.reply_text(f"❌ Error during processing: {str(e)}")
+    # Forward messages from users to owner (except owner's messages)
+    if user_id != OWNER_ID:
+        try:
+            # Forward the message to owner with a reply button
+            forwarded = await message.forward(OWNER_ID)
+            await client.send_message(
+                OWNER_ID,
+                f"📩 Message from {message.from_user.mention} (ID: {user_id})",
+                reply_to_message_id=forwarded.id,
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("📤 Reply", callback_data=f"reply_{user_id}")
+                ]])
+            )
+            await message.reply_text("✅ Your message has been sent to the bot admin!")
+        except RPCError as e:
+            await message.reply_text("❌ Failed to send your message. Please try again later.")
+            logger.error(f"Failed to forward message: {e}")
 
+# Handle callback queries (for reply button)
+@app.on_callback_query(filters.regex("^reply_"))
+async def reply_callback(client: Client, callback_query):
+    owner_id = callback_query.from_user.id
+    if owner_id != OWNER_ID:
+        await callback_query.answer("You're not authorized to do this!", show_alert=True)
+        return
+    
+    user_id = int(callback_query.data.split("_")[1])
+    await callback_query.answer()
+    
+    # Ask owner for reply message
+    await callback_query.message.reply_text(
+        f"💬 Enter your reply for user ID {user_id}:",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("🚫 Cancel", callback_data=f"cancel_reply")
+        ]])
+    )
+    
+    # Store the user_id we're replying to in a temporary state
+    client.user_reply_state = user_id
+
+# Handle owner's reply
+@app.on_message(filters.private & filters.user(OWNER_ID) & ~filters.command)
+async def handle_owner_reply(client: Client, message: Message):
+    if hasattr(client, 'user_reply_state'):
+        user_id = client.user_reply_state
+        try:
+            await message.copy(user_id)
+            await message.reply_text("✅ Reply sent successfully!")
+        except RPCError as e:
+            await message.reply_text(f"❌ Failed to send reply: {e}")
+        finally:
+            del client.user_reply_state
+
+# Handle cancel reply
+@app.on_callback_query(filters.regex("^cancel_reply$"))
+async def cancel_reply(client: Client, callback_query):
+    if hasattr(client, 'user_reply_state'):
+        del client.user_reply_state
+    await callback_query.message.edit_text("🚫 Reply cancelled.")
+    await callback_query.answer()
+
+# Start the bot
 if __name__ == "__main__":
-    # Create temp directory if not exists
-    os.makedirs("temp_files", exist_ok=True)
-    logger.info("Bot is running with aria2 integration...")
+    logger.info("Starting bot...")
     app.run()
