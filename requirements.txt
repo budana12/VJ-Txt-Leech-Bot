@@ -32,3 +32,4 @@ tqdm
 aria2
 pymongo
 cython
+cython.Build
