@@ -33,3 +33,7 @@ aria2
 pymongo
 cython
 cython.Build
+pyrogram
+tgcrypto
+cython
+setuptools
