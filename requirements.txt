@@ -31,3 +31,4 @@ tenacity
 tqdm
 aria2
 pymongo
+cython
