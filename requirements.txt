@@ -30,6 +30,7 @@ itsdangerous==2.0.1
 tenacity
 tqdm
 aria2
+telegram
 pymongo
 pyrogram
 tgcrypto
