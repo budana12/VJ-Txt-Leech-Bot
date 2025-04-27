@@ -1,205 +1,172 @@
-import urllib
-import urllib.parse
+import os
 import requests
-import json
-import subprocess
-from pyrogram.types.messages_and_media import message
-import helper
-from pyromod import listen
-from pyrogram.types import Message
-import tgcrypto
-import pyrogram
 from pyrogram import Client, filters
-from pyrogram.types.messages_and_media import message
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from pyrogram.errors import FloodWait
-import time
-from pyrogram.types import User, Message
-from p_bar import progress_bar
+from pyrogram.types import Message
 from subprocess import getstatusoutput
 import logging
-import os
-import sys
-import re
-from pyrogram import Client as bot
-import cloudscraper
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import unpad
-from base64 import b64encode, b64decode
 
-import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
-
-# Bot credentials from environment variables (Render compatible)
+# Bot credentials from environment variables
 API_ID = int(os.environ.get("API_ID", 21705536))
 API_HASH = os.environ.get("API_HASH", "c5bb241f6e3ecf33fe68a444e288de2d")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "7286340326:AAEDWRjNnqx7W602n7BPJIm7a0EYMQO4SKQ")
 
-# Initialize Bot Globally (IMPORTANT FIX)
+# Initialize the bot client
 bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
+# Constants for API requests
+API_HEADERS = {
+    'Host': 'api.penpencil.xyz',
+    'client-id': '5eb393ee95fab7468a79d189',
+    'client-version': '12.84',
+    'user-agent': 'Android',
+    'randomid': 'e4307177362e86f1',
+    'client-type': 'MOBILE',
+    'device-meta': '{APP_VERSION:12.84,DEVICE_MAKE:Asus,DEVICE_MODEL:ASUS_X00TD,OS_VERSION:6,PACKAGE_NAME:xyz.penpencil.physicswalb}',
+    'content-type': 'application/json; charset=UTF-8',
+}
+
+BASE_PARAMS = {
+    'mode': '1',
+    'filter': 'false',
+    'exam': '',
+    'amount': '',
+    'organisationId': '5eb393ee95fab7468a79d189',
+    'classes': '',
+    'limit': '20',
+    'page': '1',
+    'programId': '',
+    'ut': '1652675230446',
+}
+
+CONTENT_PARAMS = {
+    'tag': '',
+    'contentType': 'exercises-notes-videos',
+    'ut': ''
+}
+
 @bot.on_message(filters.command(["pw"]))
-async def account_login(bot: Client, m: Message):
-    editable = await m.reply_text(
-        "Send **Auth code** in this manner otherwise bot will not respond.\n\nSend like this:-  **AUTH CODE**"
-    )  
-    input1: Message = await bot.listen(editable.chat.id)
-    raw_text1=input1.text
-    headers = {
-
-            'Host': 'api.penpencil.xyz',
-
-            'authorization': f"Bearer {raw_text1}",
-
-            'client-id': '5eb393ee95fab7468a79d189',
-
-            'client-version': '12.84',
-
-            'user-agent': 'Android',
-
-            'randomid': 'e4307177362e86f1',
-
-            'client-type': 'MOBILE',
-
-            'device-meta': '{APP_VERSION:12.84,DEVICE_MAKE:Asus,DEVICE_MODEL:ASUS_X00TD,OS_VERSION:6,PACKAGE_NAME:xyz.penpencil.physicswalb}',
-
-            'content-type': 'application/json; charset=UTF-8',
-
-        # 'content-length': '89',
-
-        # 'accept-encoding': 'gzip' ,
-    }
-
-    params = {
-       'mode': '1',
-       'filter': 'false',
-       'exam': '',
-       'amount': '',
-       'organisationId': '5eb393ee95fab7468a79d189',
-       'classes': '',
-       'limit': '20',
-       'page': '1',
-       'programId': '',
-       'ut': '1652675230446', 
-    }
-    await editable.edit("**You have these Batches :-\n\nBatch ID : Batch Name**")
-    response = requests.get('https://api.penpencil.xyz/v3/batches/my-batches', params=params, headers=headers).json()["data"]
-    for data in response:
-        batch=(data["name"])
-        #batchId=(data["_id"])
-        aa=f"```{data['name']}```  :  ```{data['_id']}\n```"
-        await m.reply_text(aa)
-    #time.sleep(2)
-    editable1= await m.reply_text("**Now send the Batch ID to Download**")
-    input3 = message = await bot.listen(editable.chat.id)
-    raw_text3 = input3.text
-    response2 = requests.get(f'https://api.penpencil.xyz/v3/batches/{raw_text3}/details', headers=headers).json()["data"]["subjects"]
-    await editable1.edit("subject : subjectId")
-    vj=""
-    for data in response2:
-       #topic=(data["subject"])
-        #topic_id=(data["_id"])
-        #idid=f"{topic_id}&"
-        bb=f"{data['_id']}&"
-        await m.reply_text(bb)
-    vj=""
-    for data in response2:
-        tids = (data['_id'])
-        idid=f"{tids}&"
-        if len(f"{vj}{idid}")>4096:
-            await m.reply_text(idid)
-            vj = ""
-        vj+=idid
-    editable2= await m.reply_text("**Enter this to download full batch :-**\n```{vj}```")
-    input4 = message = await bot.listen(editable.chat.id)
-    raw_text4 = input4.text
-    await m.reply_text("**Enter resolution**")
-    input5: Message = await bot.listen(editable.chat.id)
-    raw_text5 = input5.text
+async def handle_physics_wallah(bot: Client, message: Message):
+    """Handle the /pw command to download Physics Wallah content."""
     
-    #await m.reply_text("**Enter Title**")
-    #input0: Message = await bot.listen(editable.chat.id)
-    #raw_text0 = input0.text
+    # Step 1: Get authentication token from user
+    auth_msg = await message.reply_text(
+        "Please send your **Auth code** in this format:\n\n**AUTH CODE**"
+    )
+    auth_input = await bot.listen(message.chat.id)
+    auth_token = auth_input.text
+    
+    # Add authorization to headers
+    headers = API_HEADERS.copy()
+    headers['authorization'] = f"Bearer {auth_token}"
 
-    editable4= await m.reply_text("Now send the **Thumb url** Eg : ```https://telegra.ph/file/d9e24878bd4aba05049a1.jpg```\n\nor Send **no**")
-    input6 = message = await bot.listen(editable.chat.id)
-    raw_text6 = input6.text
-    thumb = input6.text
-    if thumb.startswith("http://") or thumb.startswith("https://"):
-        getstatusoutput(f"wget '{thumb}' -O 'thumb.jpg'")
-        thumb = "thumb.jpg"
-    else:
-        thumb == "no"
     try:
-        xv = raw_text4.split('&')
-
-        for y in range(0,len(xv)):
-            t =xv[y]
-            params1 = {'page': '1','tag': '','contentType': 'exercises-notes-videos','ut': ''}
-            response3 = requests.get(f'https://api.penpencil.xyz/v2/batches/{raw_text3}/subject/{t}/contents', params=params1, headers=headers).json()["data"]
-            
-            params2 = {'page': '2','tag': '','contentType': 'exercises-notes-videos','ut': ''}
-            response4 = requests.get(f'https://api.penpencil.xyz/v2/batches/{raw_text3}/subject/{t}/contents', params=params2, headers=headers).json()["data"]
-            
-            params3 = {'page': '3','tag': '','contentType': 'exercises-notes-videos','ut': ''}
-            response5 = requests.get(f'https://api.penpencil.xyz/v2/batches/{raw_text3}/subject/{t}/contents', params=params3, headers=headers).json()["data"]
-            
-            params4 = {'page': '4','tag': '','contentType': 'exercises-notes-videos','ut': ''}
-            response6 = requests.get(f'https://api.penpencil.xyz/v2/batches/{raw_text3}/subject/{t}/contents', params=params4, headers=headers).json()["data"]
-            #await m.reply_text(response3)
+        # Step 2: Fetch available batches
+        await auth_msg.edit("**Fetching your batches...**")
+        batches_response = requests.get(
+            'https://api.penpencil.xyz/v3/batches/my-batches',
+            params=BASE_PARAMS,
+            headers=headers
+        ).json()["data"]
+        
+        # Display available batches
+        await message.reply_text("**Available Batches:**\n\nBatch ID : Batch Name")
+        for batch in batches_response:
+            batch_info = f"```{batch['name']}``` : ```{batch['_id']}```"
+            await message.reply_text(batch_info)
+        
+        # Step 3: Get batch ID to download
+        batch_prompt = await message.reply_text("**Please send the Batch ID you want to download**")
+        batch_input = await bot.listen(message.chat.id)
+        batch_id = batch_input.text
+        
+        # Step 4: Get subjects for selected batch
+        subjects_response = requests.get(
+            f'https://api.penpencil.xyz/v3/batches/{batch_id}/details',
+            headers=headers
+        ).json()["data"]["subjects"]
+        
+        # Display subjects
+        subject_ids = []
+        await message.reply_text("**Available Subjects:**\n\nSubject ID")
+        for subject in subjects_response:
+            subject_id = subject['_id']
+            subject_ids.append(subject_id)
+            await message.reply_text(f"{subject_id}&")
+        
+        # Combine subject IDs for full batch download
+        combined_ids = "&".join(subject_ids)
+        await message.reply_text(
+            f"**To download full batch, use this:**\n```{combined_ids}```"
+        )
+        
+        # Step 5: Get subject IDs to download
+        subject_prompt = await message.reply_text("**Paste the subject IDs to download**")
+        subject_input = await bot.listen(message.chat.id)
+        subjects_to_download = subject_input.text.split('&')
+        
+        # Step 6: Get resolution (though not currently used in the code)
+        await message.reply_text("**Enter resolution (optional)**")
+        resolution_input = await bot.listen(message.chat.id)
+        resolution = resolution_input.text
+        
+        # Step 7: Get thumbnail
+        thumb_prompt = await message.reply_text(
+            "**Send thumbnail URL** (e.g., `https://telegra.ph/file/example.jpg`) or send **no**"
+        )
+        thumb_input = await bot.listen(message.chat.id)
+        thumb_url = thumb_input.text
+        
+        thumb_path = None
+        if thumb_url.startswith(("http://", "https://")):
+            getstatusoutput(f"wget '{thumb_url}' -O 'thumb.jpg'")
+            thumb_path = "thumb.jpg"
+        
+        # Step 8: Process each subject and get content
+        batch_name = next((b['name'] for b in batches_response if b['_id'] == batch_id), "Unknown_Batch")
+        output_file = f"{batch_name}.txt"
+        
+        for subject_id in subjects_to_download:
+            if not subject_id:
+                continue
+                
             try:
-                for data in response3:
-                    class_title=(data["topic"])
-                    class_url=data["url"].replace("d1d34p8vz63oiq", "d3nzo6itypaz07").replace("mpd", "m3u8").strip()
-                #cc=f"```{data['topic']}```:```{data['url']}\n```"
-                    cc = f"{data['topic']}:{data['url']}"
-                    with open(f"{batch}.txt", 'a') as f:
-                        f.write(f"{class_title}:{class_url}\n")
-                #await m.reply_text(cc)
-                #await m.reply_document(f"{batch}.txt")
-            except Exception as e:
-               await m.reply_text(str(e))
-            #await m.reply_document(f"{batch}.txt")
-            try:
-                for data in response4:
-                    class_title=(data["topic"])
-                    class_url=data["url"].replace("d1d34p8vz63oiq", "d3nzo6itypaz07").replace("mpd", "m3u8").strip()
-                #cc=f"```{data['topic']}```:```{data['url']}\n```"
-                    cc = f"{data['topic']}:{data['url']}"
-                    with open(f"{batch}.txt", 'a') as f:
-                        f.write(f"{class_title}:{class_url}\n")
-                #await m.reply_text(cc)
-                #await m.reply_document(f"{batch}.txt")
-            except Exception as e:
-               await m.reply_text(str(e))
-            #await m.reply_document(f"{batch}.txt")
-            try:
-                for data in response5:
-                    class_title=(data["topic"])
-                    class_url=data["url"].replace("d1d34p8vz63oiq", "d3nzo6itypaz07").replace("mpd", "m3u8").strip()
-                #cc=f"```{data['topic']}```:```{data['url']}\n```"
-                    cc = f"{data['topic']}:{data['url']}"
-                    with open(f"{batch}.txt", 'a') as f:
-                     f.write(f"{class_title}:{class_url}\n")
-                #await m.reply_text(cc)
-                #await m.reply_document(f"{batch}.txt")
-            except Exception as e:
-               await m.reply_text(str(e))
-            #await m.reply_document(f"{batch}.txt")
-            try:
-                for data in response6:
-                    class_title=(data["topic"])
-                    class_url=data["url"].replace("d1d34p8vz63oiq", "d3nzo6itypaz07").replace("mpd", "m3u8").strip()
-                #cc=f"```{data['topic']}```:```{data['url']}\n```"
-                    cc = f"{data['topic']}:{data['url']}"
-                    with open(f"{batch}.txt", 'a') as f:
-                        f.write(f"{class_title}:{class_url}\n")
-                #await m.reply_text(cc)
-                #await m.reply_document(f"{batch}.txt")
-            except Exception as e:
-               await m.reply_text(str(e))
-            await m.reply_document(f"{batch}.txt")
+                # Get content from multiple pages
+                for page in range(1, 5):
+                    params = CONTENT_PARAMS.copy()
+                    params['page'] = str(page)
+                    
+                    content_response = requests.get(
+                        f'https://api.penpencil.xyz/v2/batches/{batch_id}/subject/{subject_id}/contents',
+                        params=params,
+                        headers=headers
+                    ).json().get("data", [])
+                    
+                    # Process each content item
+                    for content in content_response:
+                        try:
+                            title = content["topic"]
+                            url = content["url"].replace("d1d34p8vz63oiq", "d3nzo6itypaz07").replace("mpd", "m3u8").strip()
+                            
+                            with open(output_file, 'a') as f:
+                                f.write(f"{title}:{url}\n")
+                                
+                        except Exception as content_error:
+                            logging.error(f"Error processing content: {content_error}")
+                            await message.reply_text(f"Error processing content: {content_error}")
+                
+            except Exception as subject_error:
+                logging.error(f"Error processing subject {subject_id}: {subject_error}")
+                await message.reply_text(f"Error processing subject {subject_id}: {subject_error}")
+        
+        # Send the final output file
+        await message.reply_document(output_file)
+        
     except Exception as e:
-        await m.reply_text(str(e))
-    
+        logging.error(f"An error occurred: {e}")
+        await message.reply_text(f"An error occurred: {e}")
