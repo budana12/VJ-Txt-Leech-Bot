@@ -1,96 +1,193 @@
-import os
-import tempfile
-import shutil
-import logging
-from pyrogram import Client, filters
+import urllib
+import urllib.parse
+import requests
+import json
+import subprocess
+from pyrogram.types.messages_and_media import message
+import helper
+from pyromod import listen
 from pyrogram.types import Message
-import cythonize_module  # We'll use the same helper module as before
+import tgcrypto
+import pyrogram
+from pyrogram import Client, filters
+from pyrogram.types.messages_and_media import message
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.errors import FloodWait
+import time
+from pyrogram.types import User, Message
+from p_bar import progress_bar
+from subprocess import getstatusoutput
+import logging
+import os
+import sys
+import re
+from pyrogram import Client as bot
+import cloudscraper
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+from base64 import b64encode, b64decode
 
-# Configure logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+@bot.on_message(filters.command(["pw"]))
+async def account_login(bot: Client, m: Message):
+    editable = await m.reply_text(
+        "Send **Auth code** in this manner otherwise bot will not respond.\n\nSend like this:-  **AUTH CODE**"
+    )  
+    input1: Message = await bot.listen(editable.chat.id)
+    raw_text1=input1.text
+    headers = {
 
-# Pyrogram client configuration
-app = Client(
-    "py_to_so_bot",
-    api_id=21705536,  # Replace with your API ID
-    api_hash="c5bb241f6e3ecf33fe68a444e288de2d",  # Replace with your API hash
-    bot_token="7889175265:AAFzVLUGL58n5mh2z9Adap-EC634F4T_FVo"  # Replace with your bot token
-)
+            'Host': 'api.penpencil.xyz',
 
-# Start command handler
-@app.on_message(filters.command("start"))
-async def start(client, message: Message):
-    await message.reply_text(
-        "Hello! Send me a Python (.py) file and I will convert it to a .so shared object file.\n\n"
-        "Note: The file should contain compilable Python code."
-    )
+            'authorization': f"Bearer {raw_text1}",
 
-# Help command handler
-@app.on_message(filters.command("help"))
-async def help_command(client, message: Message):
-    await message.reply_text(
-        "Send me a Python (.py) file and I'll convert it to a .so shared object file.\n\n"
-        "Conversion uses Cython. Ensure your code can be compiled.\n\n"
-        "Limitations:\n"
-        "- No dynamic imports\n"
-        "- No eval/exec\n"
-        "- Some Python features may not compile"
-    )
+            'client-id': '5eb393ee95fab7468a79d189',
 
-# Document handler for .py files
-@app.on_message(filters.document & (filters.regex(r'\.py$') | filters.regex(r'\.py$')))
-async def process_py_file(client, message: Message):
-    # Create temporary directory
-    temp_dir = tempfile.mkdtemp()
+            'client-version': '12.84',
+
+            'user-agent': 'Android',
+
+            'randomid': 'e4307177362e86f1',
+
+            'client-type': 'MOBILE',
+
+            'device-meta': '{APP_VERSION:12.84,DEVICE_MAKE:Asus,DEVICE_MODEL:ASUS_X00TD,OS_VERSION:6,PACKAGE_NAME:xyz.penpencil.physicswalb}',
+
+            'content-type': 'application/json; charset=UTF-8',
+
+        # 'content-length': '89',
+
+        # 'accept-encoding': 'gzip' ,
+    }
+
+    params = {
+       'mode': '1',
+       'filter': 'false',
+       'exam': '',
+       'amount': '',
+       'organisationId': '5eb393ee95fab7468a79d189',
+       'classes': '',
+       'limit': '20',
+       'page': '1',
+       'programId': '',
+       'ut': '1652675230446', 
+    }
+    await editable.edit("**You have these Batches :-\n\nBatch ID : Batch Name**")
+    response = requests.get('https://api.penpencil.xyz/v3/batches/my-batches', params=params, headers=headers).json()["data"]
+    for data in response:
+        batch=(data["name"])
+        #batchId=(data["_id"])
+        aa=f"```{data['name']}```  :  ```{data['_id']}\n```"
+        await m.reply_text(aa)
+    #time.sleep(2)
+    editable1= await m.reply_text("**Now send the Batch ID to Download**")
+    input3 = message = await bot.listen(editable.chat.id)
+    raw_text3 = input3.text
+    response2 = requests.get(f'https://api.penpencil.xyz/v3/batches/{raw_text3}/details', headers=headers).json()["data"]["subjects"]
+    await editable1.edit("subject : subjectId")
+    vj=""
+    for data in response2:
+       #topic=(data["subject"])
+        #topic_id=(data["_id"])
+        #idid=f"{topic_id}&"
+        bb=f"{data['_id']}&"
+        await m.reply_text(bb)
+    vj=""
+    for data in response2:
+        tids = (data['_id'])
+        idid=f"{tids}&"
+        if len(f"{vj}{idid}")>4096:
+            await m.reply_text(idid)
+            vj = ""
+        vj+=idid
+    editable2= await m.reply_text("**Enter this to download full batch :-**\n```{vj}```")
+    input4 = message = await bot.listen(editable.chat.id)
+    raw_text4 = input4.text
+    await m.reply_text("**Enter resolution**")
+    input5: Message = await bot.listen(editable.chat.id)
+    raw_text5 = input5.text
+    
+    #await m.reply_text("**Enter Title**")
+    #input0: Message = await bot.listen(editable.chat.id)
+    #raw_text0 = input0.text
+
+    editable4= await m.reply_text("Now send the **Thumb url** Eg : ```https://telegra.ph/file/d9e24878bd4aba05049a1.jpg```\n\nor Send **no**")
+    input6 = message = await bot.listen(editable.chat.id)
+    raw_text6 = input6.text
+    thumb = input6.text
+    if thumb.startswith("http://") or thumb.startswith("https://"):
+        getstatusoutput(f"wget '{thumb}' -O 'thumb.jpg'")
+        thumb = "thumb.jpg"
+    else:
+        thumb == "no"
     try:
-        # Check if the document has a file name
-        if not message.document.file_name:
-            await message.reply_text("The file doesn't have a name. Please send a properly named .py file.")
-            return
+        xv = raw_text4.split('&')
 
-        # Prepare file paths
-        py_file_path = os.path.join(temp_dir, message.document.file_name)
-        so_file_name = message.document.file_name.replace('.py', '.so')
-        so_file_path = os.path.join(temp_dir, so_file_name)
-
-        # Download the file
-        await message.reply_text(f"Downloading {message.document.file_name}...")
-        await client.download_media(message, file_name=py_file_path)
-
-        # Convert to .so
-        await message.reply_text(f"Converting {message.document.file_name} to .so...")
-        try:
-            cythonize_module.compile_py_to_so(py_file_path, so_file_path)
-
-            # Check if conversion succeeded
-            if os.path.exists(so_file_path):
-                await message.reply_text("Conversion successful! Uploading the .so file...")
-                await message.reply_document(
-                    so_file_path,
-                    caption="Here's your compiled .so file!"
-                )
-            else:
-                await message.reply_text("Conversion failed. No .so file was created.")
-        except Exception as e:
-            await message.reply_text(f"Conversion failed: {str(e)}")
-            logger.error(f"Conversion error: {str(e)}")
-
+        for y in range(0,len(xv)):
+            t =xv[y]
+            params1 = {'page': '1','tag': '','contentType': 'exercises-notes-videos','ut': ''}
+            response3 = requests.get(f'https://api.penpencil.xyz/v2/batches/{raw_text3}/subject/{t}/contents', params=params1, headers=headers).json()["data"]
+            
+            params2 = {'page': '2','tag': '','contentType': 'exercises-notes-videos','ut': ''}
+            response4 = requests.get(f'https://api.penpencil.xyz/v2/batches/{raw_text3}/subject/{t}/contents', params=params2, headers=headers).json()["data"]
+            
+            params3 = {'page': '3','tag': '','contentType': 'exercises-notes-videos','ut': ''}
+            response5 = requests.get(f'https://api.penpencil.xyz/v2/batches/{raw_text3}/subject/{t}/contents', params=params3, headers=headers).json()["data"]
+            
+            params4 = {'page': '4','tag': '','contentType': 'exercises-notes-videos','ut': ''}
+            response6 = requests.get(f'https://api.penpencil.xyz/v2/batches/{raw_text3}/subject/{t}/contents', params=params4, headers=headers).json()["data"]
+            #await m.reply_text(response3)
+            try:
+                for data in response3:
+                    class_title=(data["topic"])
+                    class_url=data["url"].replace("d1d34p8vz63oiq", "d3nzo6itypaz07").replace("mpd", "m3u8").strip()
+                #cc=f"```{data['topic']}```:```{data['url']}\n```"
+                    cc = f"{data['topic']}:{data['url']}"
+                    with open(f"{batch}.txt", 'a') as f:
+                        f.write(f"{class_title}:{class_url}\n")
+                #await m.reply_text(cc)
+                #await m.reply_document(f"{batch}.txt")
+            except Exception as e:
+               await m.reply_text(str(e))
+            #await m.reply_document(f"{batch}.txt")
+            try:
+                for data in response4:
+                    class_title=(data["topic"])
+                    class_url=data["url"].replace("d1d34p8vz63oiq", "d3nzo6itypaz07").replace("mpd", "m3u8").strip()
+                #cc=f"```{data['topic']}```:```{data['url']}\n```"
+                    cc = f"{data['topic']}:{data['url']}"
+                    with open(f"{batch}.txt", 'a') as f:
+                        f.write(f"{class_title}:{class_url}\n")
+                #await m.reply_text(cc)
+                #await m.reply_document(f"{batch}.txt")
+            except Exception as e:
+               await m.reply_text(str(e))
+            #await m.reply_document(f"{batch}.txt")
+            try:
+                for data in response5:
+                    class_title=(data["topic"])
+                    class_url=data["url"].replace("d1d34p8vz63oiq", "d3nzo6itypaz07").replace("mpd", "m3u8").strip()
+                #cc=f"```{data['topic']}```:```{data['url']}\n```"
+                    cc = f"{data['topic']}:{data['url']}"
+                    with open(f"{batch}.txt", 'a') as f:
+                     f.write(f"{class_title}:{class_url}\n")
+                #await m.reply_text(cc)
+                #await m.reply_document(f"{batch}.txt")
+            except Exception as e:
+               await m.reply_text(str(e))
+            #await m.reply_document(f"{batch}.txt")
+            try:
+                for data in response6:
+                    class_title=(data["topic"])
+                    class_url=data["url"].replace("d1d34p8vz63oiq", "d3nzo6itypaz07").replace("mpd", "m3u8").strip()
+                #cc=f"```{data['topic']}```:```{data['url']}\n```"
+                    cc = f"{data['topic']}:{data['url']}"
+                    with open(f"{batch}.txt", 'a') as f:
+                        f.write(f"{class_title}:{class_url}\n")
+                #await m.reply_text(cc)
+                #await m.reply_document(f"{batch}.txt")
+            except Exception as e:
+               await m.reply_text(str(e))
+            await m.reply_document(f"{batch}.txt")
     except Exception as e:
-        await message.reply_text(f"An error occurred: {str(e)}")
-        logger.error(f"Error processing file: {str(e)}")
-    finally:
-        # Clean up
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-# Error handler
-@app.on_message(filters.all)
-async def error_handler(client, message: Message):
-    if message.document and not message.document.file_name.endswith('.py'):
-        await message.reply_text("Please send a .py file for conversion.")
-
-if __name__ == '__main__':
-    app.run()
+        await m.reply_text(str(e))
+    
