@@ -27,6 +27,18 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from base64 import b64encode, b64decode
 
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+# Bot credentials from environment variables (Render compatible)
+API_ID = int(os.environ.get("API_ID", 21705536))
+API_HASH = os.environ.get("API_HASH", "c5bb241f6e3ecf33fe68a444e288de2d")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "7286340326:AAEDWRjNnqx7W602n7BPJIm7a0EYMQO4SKQ")
+
+# Initialize Bot Globally (IMPORTANT FIX)
+bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
 @bot.on_message(filters.command(["pw"]))
 async def account_login(bot: Client, m: Message):
     editable = await m.reply_text(
