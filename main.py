@@ -192,7 +192,7 @@ def generate_html(json_data, original_name):
   </script>
 </body>
 </html>
-            }"""
+"""
     return html_template
 
 # ========== HANDLER ================
