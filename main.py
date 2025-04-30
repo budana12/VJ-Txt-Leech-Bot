@@ -1,3 +1,4 @@
+
 import os
 import re
 import json
@@ -10,6 +11,7 @@ from datetime import datetime
 API_ID = 21705536  # Replace with your API ID
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"  # Replace with your API HASH
 BOT_TOKEN = "7480080731:AAF_XoWPfbmRUtMSg7B1xDBtUdd8JpZXgP4"  # Replace with your BOT token
+THUMBNAIL_URL = "https://i.postimg.cc/4N69wBLt/hat-hacker.webp"  # replace with your thumbnail URL
 
 bot = Client("json_to_html_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
@@ -55,9 +57,9 @@ def json_to_collapsible_html(data):
         else:
             name, url = extract_name_url(str(obj))
             if url:
-                html += f'<div class="item"><a href="{url}" target="_blank">{name}</a></div>\n'
+                html += f'<div class="item" style="text-align:center;"><a href="{url}" target="_blank">{name}</a></div>\n'
             else:
-                html += f"<div class='item'>{name}</div>\n"
+                html += f"<div class='item' style='text-align:center;'>{name}</div>\n"
         return html
 
     return recurse(data)
@@ -73,19 +75,19 @@ def generate_html(json_data, original_name):
   <title>{safe_title}</title>
   <style>
     body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f8f9fa; }}
-    .header {{ text-align: center; margin-bottom: 20px; }}
+    .header {{ display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }}
     .thumbnail {{ width: 120px; border-radius: 10px; }}
-    .collapsible {{ background-color: #007BFF; color: white; cursor: pointer; padding: 10px; width: 100%; border: none; text-align: left; outline: none; font-size: 16px; border-radius: 5px; margin-top: 10px; }}
+    .collapsible {{ background-color: #007BFF; color: white; cursor: pointer; padding: 10px; width: 100%; border: none; text-align: center; outline: none; font-size: 16px; border-radius: 5px; margin-top: 10px; }}
     .active, .collapsible:hover {{ background-color: #0056b3; }}
     .content {{ padding: 0 18px; display: none; overflow: hidden; background-color: #f1f1f1; margin-top: 5px; border-radius: 5px; }}
-    .item {{ padding: 8px; border-bottom: 1px solid #ccc; }}
+    .item {{ padding: 8px; border-bottom: 1px solid #ccc; text-align: center; }}
     a {{ text-decoration: none; color: #333; }}
     a:hover {{ color: #007BFF; }}
   </style>
 </head>
 <body>
   <div class="header">
-    <img class="thumbnail" src="https://i.postimg.cc/4N69wBLt/hat-hacker.webp" alt="Thumbnail">
+    <img class="thumbnail" src="{THUMBNAIL_URL}" alt="Thumbnail">
     <h1>{safe_title}</h1>
   </div>
   {html_body}
