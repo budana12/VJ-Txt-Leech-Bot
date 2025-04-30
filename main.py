@@ -405,7 +405,7 @@ async def handle_json_file(client: Client, message: Message):
     await message.reply_document(
         document=output_file,
         caption=f"📊 **{base_name}**\nHere's your interactive JSON explorer with professional styling!",
-        parse_mode="markdown"
+        parse_mode="md"  # Changed from "markdown" to "md"
     )
 
     # Clean up
