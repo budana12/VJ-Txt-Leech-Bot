@@ -7,9 +7,9 @@ from pathlib import Path
 from datetime import datetime
 
 # ------------- Bot Config ----------------
-API_ID = 123456  # Replace with your API ID
-API_HASH = "your_api_hash"  # Replace with your API HASH
-BOT_TOKEN = "your_bot_token"  # Replace with your BOT token
+API_ID = 21705536  # Replace with your API ID
+API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"  # Replace with your API HASH
+BOT_TOKEN = "7480080731:AAF_XoWPfbmRUtMSg7B1xDBtUdd8JpZXgP4"  # Replace with your BOT token
 
 bot = Client("json_to_html_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
