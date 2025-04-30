@@ -80,6 +80,11 @@ def generate_html(json_data, original_name):
         --accent: #f72585;
         --light: #f8f9fa;
         --dark: #212529;
+        --dark-bg: #1a1a1a;
+        --darker-bg: #121212;
+        --card-bg: #2d2d2d;
+        --text-light: #e0e0e0;
+        --text-lighter: #f5f5f5;
         --success: #4cc9f0;
         --warning: #f8961e;
         --danger: #ef233c;
@@ -95,8 +100,8 @@ def generate_html(json_data, original_name):
     body {{
         font-family: 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
         line-height: 1.6;
-        color: var(--dark);
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        color: var(--text-light);
+        background: var(--dark-bg);
         padding: 20px;
         min-height: 100vh;
     }}
@@ -104,49 +109,49 @@ def generate_html(json_data, original_name):
     .container {{
         max-width: 1000px;
         margin: 0 auto;
-        background: white;
+        background: var(--card-bg);
         border-radius: 12px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
         overflow: hidden;
         padding-bottom: 20px;
     }}
     
     .header {{
-        background: linear-gradient(to right, var(--primary), var(--secondary));
+        background: linear-gradient(to right, var(--darker-bg), var(--dark-bg));
         color: white;
-        padding: 30px 20px;
-        text-align: center;
-        position: relative;
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        gap: 20px;
         margin-bottom: 30px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }}
+    
+    .thumbnail {{
+        width: 80px;
+        height: 80px;
+        border-radius: 10px;
+        object-fit: cover;
+        border: 3px solid var(--primary);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        flex-shrink: 0;
+    }}
+    
+    .header-content {{
+        flex: 1;
     }}
     
     .header h1 {{
-        font-size: 2.2rem;
-        margin-bottom: 10px;
+        font-size: 1.8rem;
+        margin-bottom: 5px;
         font-weight: 600;
+        color: var(--text-lighter);
     }}
     
     .header p {{
-        opacity: 0.9;
+        opacity: 0.8;
         font-size: 0.9rem;
-    }}
-    
-    .logo {{
-        width: 60px;
-        height: 60px;
-        background: white;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin: 0 auto 15px;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    }}
-    
-    .logo svg {{
-        width: 30px;
-        height: 30px;
-        fill: var(--primary);
+        color: var(--text-light);
     }}
     
     .meta {{
@@ -182,13 +187,13 @@ def generate_html(json_data, original_name):
         justify-content: space-between;
         align-items: center;
         transition: all 0.3s ease;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
     }}
     
     .collapsible:hover {{
         background: linear-gradient(to right, var(--secondary), var(--primary));
         transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
     }}
     
     .collapsible.active {{
@@ -213,10 +218,11 @@ def generate_html(json_data, original_name):
         padding: 0 10px;
         max-height: 0;
         overflow: hidden;
-        background-color: white;
+        background-color: rgba(0, 0, 0, 0.2);
         transition: max-height 0.3s ease-out, padding 0.3s ease;
         border-left: 3px solid var(--primary);
         margin-left: 10px;
+        border-radius: 0 0 8px 8px;
     }}
     
     .content.expanded {{
@@ -228,13 +234,14 @@ def generate_html(json_data, original_name):
     .item {{
         padding: 10px 15px;
         margin: 5px 0;
-        background: var(--light);
+        background: rgba(255, 255, 255, 0.05);
         border-radius: 6px;
         transition: all 0.2s ease;
+        color: var(--text-light);
     }}
     
     .item:hover {{
-        background: #e9ecef;
+        background: rgba(255, 255, 255, 0.1);
         transform: translateX(3px);
     }}
     
@@ -246,24 +253,25 @@ def generate_html(json_data, original_name):
     }}
     
     .list-item {{
-        background: #f8f9fa;
+        background: rgba(255, 255, 255, 0.05);
         padding: 8px 12px;
         border-radius: 6px;
         font-size: 0.9rem;
         transition: all 0.2s ease;
+        color: var(--text-light);
     }}
     
     .list-item:hover {{
-        background: #e9ecef;
-        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+        background: rgba(255, 255, 255, 0.1);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
     }}
     
     .link-item {{
-        color: var(--primary);
+        color: var(--success);
         font-weight: 500;
         display: inline-block;
         padding: 2px 0;
-        border-bottom: 1px dashed var(--primary);
+        border-bottom: 1px dashed var(--success);
         transition: all 0.2s ease;
     }}
     
@@ -279,7 +287,7 @@ def generate_html(json_data, original_name):
         padding: 15px;
         font-size: 0.8rem;
         color: var(--gray);
-        border-top: 1px solid #eee;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
     }}
     
     @media (max-width: 768px) {{
@@ -287,8 +295,14 @@ def generate_html(json_data, original_name):
             border-radius: 0;
         }}
         
-        .header h1 {{
-            font-size: 1.8rem;
+        .header {{
+            flex-direction: column;
+            text-align: center;
+            padding: 20px 15px;
+        }}
+        
+        .thumbnail {{
+            margin-bottom: 15px;
         }}
         
         .simple-list {{
@@ -300,13 +314,11 @@ def generate_html(json_data, original_name):
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo">
-        <svg viewBox="0 0 24 24">
-          <path d="M5,3H19A2,2 0 0,1 21,5V19A2,2 0 0,1 19,21H5A2,2 0 0,1 3,19V5A2,2 0 0,1 5,3M7,5A2,2 0 0,0 5,7A2,2 0 0,0 7,9A2,2 0 0,0 9,7A2,2 0 0,0 7,5M17,15A2,2 0 0,0 15,17A2,2 0 0,0 17,19A2,2 0 0,0 19,17A2,2 0 0,0 17,15M17,5A2,2 0 0,0 15,7A2,2 0 0,0 17,9A2,2 0 0,0 19,7A2,2 0 0,0 17,5M7,15A2,2 0 0,0 5,17A2,2 0 0,0 7,19A2,2 0 0,0 9,17A2,2 0 0,0 7,15M16,10L18,12L16,14L14,12L16,10M8,10L10,12L8,14L6,12L8,10Z" />
-        </svg>
+      <img src="https://i.postimg.cc/4N69wBLt/hat-hacker.webp" alt="Thumbnail" class="thumbnail">
+      <div class="header-content">
+        <h1>{safe_title}</h1>
+        <p>Interactive JSON Explorer</p>
       </div>
-      <h1>{safe_title}</h1>
-      <p>Interactive JSON Explorer</p>
     </div>
     
     <div class="meta">
