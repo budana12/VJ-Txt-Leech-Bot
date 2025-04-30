@@ -110,7 +110,7 @@ def generate_html(json_data, original_name):
 </head>
 <body>
   <div class="header">
-    <img class="thumbnail" src="https://via.placeholder.com/150x150.png?text=Thumbnail" alt="Thumbnail">
+    <img class="thumbnail" src="https://i.postimg.cc/4N69wBLt/hat-hacker.webp" alt="Thumbnail">
     <h1>{safe_title}</h1>
   </div>
   {html_body}
