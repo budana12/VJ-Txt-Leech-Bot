@@ -64,7 +64,7 @@ def json_to_collapsible_html(data):
     return recurse(data)
 
 def generate_html(json_data, original_name):
-    display_title = original_name.replace("_", " ")  # Keep spaces
+    display_title = original_name.replace("_", " ")
     formatted_datetime = datetime.now().strftime("%d-%m-%Y %I:%M %p")
     html_body = json_to_collapsible_html(json_data)
 
@@ -77,12 +77,26 @@ def generate_html(json_data, original_name):
   <style>
     body {{
       font-family: Arial, sans-serif;
-      margin: 20px;
+      margin: 0;
       background-color: #f8f9fa;
-      display: flex;
-      justify-content: center;
     }}
-    .container {{ width: 640px; }}
+    .loader-container {{
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      z-index: 9999;
+    }}
+    .container {{
+      width: 640px;
+      margin: 20px auto;
+      display: none;
+    }}
     .header {{
       display: flex;
       flex-wrap: wrap;
@@ -130,20 +144,39 @@ def generate_html(json_data, original_name):
     .item {{ padding: 8px; border-bottom: 1px solid #ccc; text-align: center; }}
     a {{ text-decoration: none; color: #333; }}
     a:hover {{ color: #007BFF; }}
+    .footer-strip {{
+      margin-top: 40px;
+      padding: 10px;
+      text-align: center;
+      background: linear-gradient(to right, #ff6a00, #ee0979);
+      color: white;
+      font-weight: bold;
+      border-radius: 8px;
+    }}
   </style>
 </head>
 <body>
-  <div class=\"container\">
+  <div class="loader-container" id="loader">
+    <h1>Welcome To Engineer's Babu</h1>
+    <p>Your Content is Preparing...</p>
+  </div>
+  <div class=\"container\" id=\"main-content\">
     <div class=\"header\">
       <img class=\"thumbnail\" src=\"{THUMBNAIL_URL}\" alt=\"Thumbnail\">
       <h1>{display_title}</h1>
     </div>
-    <div class="subheading">📥 Extracted By : <a href="https://t.me/Engineersbabuhelpbot" target="_blank">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div><br>
-    <div class="datetime" id="datetime">{formatted_datetime}</div><br>
-    <p>🔹Use This Bot for TXT to HTML File Extraction : <a href="https://t.me/htmldeveloperbot" target="_blank">@htmldeveloperbot</a></p>
+    <div class=\"subheading\">📥 Extracted By : <a href=\"https://t.me/Engineersbabuhelpbot\" target=\"_blank\">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div><br>
+    <div class=\"datetime\" id=\"datetime\">{formatted_datetime}</div><br>
+    <p>🔹Use This Bot for TXT to HTML File Extraction : <a href=\"https://t.me/htmldeveloperbot\" target=\"_blank\">@htmldeveloperbot</a></p>
     {html_body}
+    <div class=\"footer-strip\">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</div>
   </div>
   <script>
+    window.addEventListener("load", () => {
+      document.getElementById("loader").style.display = "none";
+      document.getElementById("main-content").style.display = "block";
+    });
+
     const collapsibles = document.getElementsByClassName("collapsible");
     for (let i = 0; i < collapsibles.length; i++) {
       collapsibles[i].addEventListener("click", function() {
