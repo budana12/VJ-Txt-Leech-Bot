@@ -1,4 +1,3 @@
-
 import os
 import re
 import json
@@ -45,8 +44,9 @@ def json_to_collapsible_html(data):
             for key, value in obj.items():
                 section_id += 1
                 inner = recurse(value, depth + 1)
+                color = "#ffffff" if depth % 2 == 0 else "#f0f8ff"
                 html += f"""
-<div class=\"section\">
+<div class=\"section\" style=\"background-color:{color}; padding: 5px; border-radius: 4px;\">
   <button class=\"collapsible\">{key}</button>
   <div class=\"content\">{inner}</div>
 </div>
@@ -74,23 +74,27 @@ def generate_html(json_data, original_name):
   <meta charset=\"UTF-8\">
   <title>{safe_title}</title>
   <style>
-    body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f8f9fa; }}
-    .header {{ display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }}
+    body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f8f9fa; display: flex; justify-content: center; }}
+    .container {{ width: 640px; }}
+    .header {{ display: flex; align-items: center; gap: 20px; margin-bottom: 20px; justify-content: center; }}
     .thumbnail {{ width: 120px; border-radius: 10px; }}
+    h1 {{ text-align: center; }}
     .collapsible {{ background-color: #007BFF; color: white; cursor: pointer; padding: 10px; width: 100%; border: none; text-align: center; outline: none; font-size: 16px; border-radius: 5px; margin-top: 10px; }}
     .active, .collapsible:hover {{ background-color: #0056b3; }}
-    .content {{ padding: 0 18px; display: none; overflow: hidden; background-color: #f1f1f1; margin-top: 5px; border-radius: 5px; }}
+    .content {{ padding: 10px 18px; display: none; overflow: hidden; background-color: #ffffff; margin-top: 5px; border-radius: 5px; }}
     .item {{ padding: 8px; border-bottom: 1px solid #ccc; text-align: center; }}
     a {{ text-decoration: none; color: #333; }}
     a:hover {{ color: #007BFF; }}
   </style>
 </head>
 <body>
-  <div class="header">
-    <img class="thumbnail" src="{THUMBNAIL_URL}" alt="Thumbnail">
-    <h1>{safe_title}</h1>
+  <div class="container">
+    <div class="header">
+      <img class="thumbnail" src="{THUMBNAIL_URL}" alt="Thumbnail">
+      <h1>{safe_title}</h1>
+    </div>
+    {html_body}
   </div>
-  {html_body}
   <script>
     const collapsibles = document.getElementsByClassName("collapsible");
     for (let i = 0; i < collapsibles.length; i++) {{
