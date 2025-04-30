@@ -9,14 +9,14 @@ from datetime import datetime
 # ------------- Bot Config ----------------
 API_ID = 21705536  # Replace with your API ID
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"  # Replace with your API HASH
-BOT_TOKEN = "7480080731:AAF_XoWPfbmRUtMSg7B1xDBtUdd8JpZXgP4"  # Replace with your BOT token
-THUMBNAIL_URL = "https://i.postimg.cc/4N69wBLt/hat-hacker.webp"  # Thumbnail URL
+BOT_TOKEN = "7480080731:AAF_XoWPfbmRUtMSg7B1xDBtUdd8JpZXgP4"  # Replace with your BOT Token
+THUMBNAIL_URL = "https://i.postimg.cc/4N69wBLt/hat-hacker.webp"
 
 bot = Client("json_to_html_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# ========== UTILS ===============
-def sanitize_filename(name):
-    return re.sub(r'[^a-zA-Z0-9 .\-]', '_', name)
+# ========== Utility Functions ==========
+def sanitize_filename(name: str) -> str:
+    return re.sub(r'[^a-zA-Z0-9.\- ]', '_', name)
 
 def modify_url(url: str) -> str:
     if "classplusapp" in url:
@@ -43,11 +43,10 @@ def json_to_collapsible_html(data):
         if isinstance(obj, dict):
             for key, value in obj.items():
                 section_id += 1
-                inner = recurse(value, depth + 1)
                 html += f"""
-<div class=\"section\">
-  <button class=\"collapsible\">{key}</button>
-  <div class=\"content\">{inner}</div>
+<div class="section">
+  <button class="collapsible">{key}</button>
+  <div class="content">{recurse(value, depth + 1)}</div>
 </div>
 """
         elif isinstance(obj, list):
@@ -58,22 +57,20 @@ def json_to_collapsible_html(data):
             if url:
                 html += f'<div class="item"><a href="{url}" target="_blank">{name}</a></div>\n'
             else:
-                html += f"<div class='item'>{name}</div>\n"
+                html += f'<div class="item">{name}</div>\n'
         return html
 
     return recurse(data)
 
-def generate_html(json_data, original_name):
-    display_title = original_name.replace("_", " ")
-    formatted_datetime = datetime.now().strftime("%d-%m-%Y %I:%M %p")
-    html_body = json_to_collapsible_html(json_data)
+def generate_html(data, title):
+    formatted_date = datetime.now().strftime("%d-%m-%Y %I:%M %p")
+    collapsible_html = json_to_collapsible_html(data)
 
-    html_template = f"""
-<!DOCTYPE html>
-<html lang=\"en\">
+    html = f"""<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset=\"UTF-8\">
-  <title>{display_title}</title>
+  <meta charset="UTF-8">
+  <title>{title}</title>
   <style>
     body {{
       font-family: Arial, sans-serif;
@@ -101,18 +98,18 @@ def generate_html(json_data, original_name):
       display: flex;
       flex-wrap: wrap;
       align-items: center;
-      gap: 20px;
-      margin-bottom: 20px;
       justify-content: center;
-      text-align: center;
       background: linear-gradient(135deg, #007BFF, #00C6FF, #7EE8FA, #EEC0C6);
       padding: 20px;
       border-radius: 15px;
     }}
     .thumbnail {{ width: 120px; border-radius: 10px; }}
-    h1 {{ flex: 1 1 300px; text-align: center; margin: 0; color: #fff; }}
-    .subheading {{ text-align: center; font-weight: bold; margin-bottom: 5px; }}
-    .datetime {{ text-align: center; color: #888; font-size: 14px; }}
+    h1 {{ color: #fff; margin: 0; flex: 1 1 300px; text-align: center; }}
+    .subheading, .datetime {{
+      text-align: center;
+      margin-top: 10px;
+    }}
+    .datetime {{ color: #888; font-size: 14px; }}
     .collapsible {{
       background-color: #007BFF;
       color: white;
@@ -121,19 +118,17 @@ def generate_html(json_data, original_name):
       width: 100%;
       border: none;
       text-align: center;
-      outline: none;
       font-size: 16px;
       border-radius: 5px;
       margin-top: 10px;
     }}
     .active, .collapsible:hover {{ background-color: #0056b3; }}
     .content {{
-      padding: 10px 18px;
       display: none;
-      overflow: hidden;
-      background-color: #ffffff;
-      margin-top: 5px;
+      padding: 10px 18px;
+      background-color: #fff;
       border-radius: 5px;
+      margin-top: 5px;
     }}
     .section {{
       border: 1px solid #ddd;
@@ -141,7 +136,11 @@ def generate_html(json_data, original_name):
       margin-bottom: 8px;
       padding: 5px;
     }}
-    .item {{ padding: 8px; border-bottom: 1px solid #ccc; text-align: center; }}
+    .item {{
+      padding: 8px;
+      border-bottom: 1px solid #ccc;
+      text-align: center;
+    }}
     a {{ text-decoration: none; color: #333; }}
     a:hover {{ color: #007BFF; }}
     .footer-strip {{
@@ -158,49 +157,44 @@ def generate_html(json_data, original_name):
 <body>
   <div class="loader-container" id="loader">
     <h1>Welcome To Engineer's Babu</h1>
-    <p>Your Content is Preparing...</p>
+    <p>Your content is preparing...</p>
   </div>
-  <div class=\"container\" id=\"main-content\">
-    <div class=\"header\">
-      <img class=\"thumbnail\" src=\"{THUMBNAIL_URL}\" alt=\"Thumbnail\">
-      <h1>{display_title}</h1>
+  <div class="container" id="main-content">
+    <div class="header">
+      <img class="thumbnail" src="{THUMBNAIL_URL}" alt="Thumbnail">
+      <h1>{title}</h1>
     </div>
-    <div class=\"subheading\">📥 Extracted By : <a href=\"https://t.me/Engineersbabuhelpbot\" target=\"_blank\">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div><br>
-    <div class=\"datetime\" id=\"datetime\">{formatted_datetime}</div><br>
-    <p>🔹Use This Bot for TXT to HTML File Extraction : <a href=\"https://t.me/htmldeveloperbot\" target=\"_blank\">@htmldeveloperbot</a></p>
-    {html_body}
-    <div class=\"footer-strip\">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</div>
+    <div class="subheading">📥 Extracted By : <a href="https://t.me/Engineersbabuhelpbot" target="_blank">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div>
+    <div class="datetime">{formatted_date}</div>
+    <p style="text-align:center;">🔹 Use this bot for TXT to HTML: <a href="https://t.me/htmldeveloperbot" target="_blank">@htmldeveloperbot</a></p>
+    {collapsible_html}
+    <div class="footer-strip">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</div>
   </div>
   <script>
-    window.addEventListener("load", () => {
+    window.onload = function () {{
       document.getElementById("loader").style.display = "none";
       document.getElementById("main-content").style.display = "block";
-    });
-
+    }};
     const collapsibles = document.getElementsByClassName("collapsible");
-    for (let i = 0; i < collapsibles.length; i++) {
-      collapsibles[i].addEventListener("click", function() {
+    for (let i = 0; i < collapsibles.length; i++) {{
+      collapsibles[i].addEventListener("click", function () {{
         this.classList.toggle("active");
         const content = this.nextElementSibling;
-        if (content.style.display === "block") {
-          content.style.display = "none";
-        } else {
-          content.style.display = "block";
-        }
-      });
-    }
+        content.style.display = content.style.display === "block" ? "none" : "block";
+      }});
+    }}
   </script>
 </body>
-</html>
-"""
-    return html_template
+</html>"""
+    return html
 
-# ========== HANDLER ================
+# ========== Bot Handler ==========
 @bot.on_message(filters.document & filters.private)
 async def handle_json_file(client: Client, message: Message):
     doc = message.document
+
     if not doc.file_name.endswith(".json"):
-        await message.reply("❌ Please send a valid `.json` file.")
+        await message.reply("❌ Please upload a valid `.json` file.")
         return
 
     os.makedirs("downloads", exist_ok=True)
@@ -209,27 +203,27 @@ async def handle_json_file(client: Client, message: Message):
 
     try:
         with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+            json_data = json.load(f)
     except Exception as e:
         await message.reply(f"❌ Failed to parse JSON: {e}")
         return
 
     base_name = Path(doc.file_name).stem
-    html = generate_html(data, base_name)
-    output_file = f"downloads/{base_name}.html"
+    html_content = generate_html(json_data, base_name)
+    output_path = f"downloads/{base_name}.html"
 
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(html)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
 
     await message.reply_document(
-        document=output_file,
-        caption=f"✅ Structured HTML created for **{base_name}**",
+        document=output_path,
+        caption=f"✅ Structured HTML created for **{base_name}**"
     )
 
     os.remove(file_path)
-    os.remove(output_file)
+    os.remove(output_path)
 
-# ========== START BOT ===============
+# ========== Start Bot ==========
 if __name__ == "__main__":
     print("🤖 Bot is running...")
     bot.run()
