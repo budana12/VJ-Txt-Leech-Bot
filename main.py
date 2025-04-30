@@ -6,6 +6,7 @@ from pyrogram.types import Message
 from pathlib import Path
 from datetime import datetime
 
+# ========== CONFIG ==============
 # ------------- Bot Config ----------------
 API_ID = 21705536  # Replace with your API ID
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"  # Replace with your API HASH
@@ -13,9 +14,25 @@ BOT_TOKEN = "7480080731:AAF_XoWPfbmRUtMSg7B1xDBtUdd8JpZXgP4"  # Replace with you
 
 bot = Client("json_to_html_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# ----------- HTML Generator -------------
+# ========== UTILS ===============
 def sanitize_filename(name):
     return re.sub(r'[^a-zA-Z0-9_\-]', '_', name)
+
+def modify_url(url: str) -> str:
+    if "classplusapp" in url:
+        clean_url = url.split("://")[-1] if "://" in url else url
+        return f"https://api.extractor.workers.dev/player?url={clean_url}"
+    elif "/master.mpd" in url:
+        vid_id = url.split("/")[-2]
+        return f"https://player.muftukmall.site/?id={vid_id}"
+    return url
+
+def extract_name_url(text: str):
+    match = re.match(r"^(.*?)(https?://\S+)$", text.strip())
+    if match:
+        name, url = match.groups()
+        return name.strip(" :"), modify_url(url.strip())
+    return text.strip(), None
 
 def json_to_collapsible_html(data):
     section_id = 0
@@ -28,21 +45,20 @@ def json_to_collapsible_html(data):
                 section_id += 1
                 inner = recurse(value, depth + 1)
                 html += f"""
-<div class="section">
-  <button class="collapsible">{key}</button>
-  <div class="content">{inner}</div>
+<div class=\"section\">
+  <button class=\"collapsible\">{key}</button>
+  <div class=\"content\">{inner}</div>
 </div>
 """
         elif isinstance(obj, list):
             for item in obj:
                 html += recurse(item, depth)
         else:
-            text = str(obj)
-            if "http" in text:
-                label, url = text.rsplit(":", 1)
-                html += f'<div class="item"><a href="{url.strip()}" target="_blank">{label.strip()}</a></div>\n'
+            name, url = extract_name_url(str(obj))
+            if url:
+                html += f'<div class="item"><a href="{url}" target="_blank">{name}</a></div>\n'
             else:
-                html += f"<div class='item'>{text}</div>\n"
+                html += f"<div class='item'>{name}</div>\n"
         return html
 
     return recurse(data)
@@ -50,62 +66,22 @@ def json_to_collapsible_html(data):
 def generate_html(json_data, original_name):
     safe_title = sanitize_filename(original_name)
     html_body = json_to_collapsible_html(json_data)
-
     html_template = f"""
 <!DOCTYPE html>
-<html lang="en">
+<html lang=\"en\">
 <head>
-  <meta charset="UTF-8">
+  <meta charset=\"UTF-8\">
   <title>{safe_title}</title>
   <style>
-    body {{
-        font-family: Arial, sans-serif;
-        margin: 20px;
-        background-color: #f8f9fa;
-    }}
-    .header {{
-        text-align: center;
-        margin-bottom: 20px;
-    }}
-    .thumbnail {{
-        width: 120px;
-        border-radius: 10px;
-    }}
-    .collapsible {{
-        background-color: #007BFF;
-        color: white;
-        cursor: pointer;
-        padding: 10px;
-        width: 100%;
-        border: none;
-        text-align: left;
-        outline: none;
-        font-size: 16px;
-        border-radius: 5px;
-        margin-top: 10px;
-    }}
-    .active, .collapsible:hover {{
-        background-color: #0056b3;
-    }}
-    .content {{
-        padding: 0 18px;
-        display: none;
-        overflow: hidden;
-        background-color: #f1f1f1;
-        margin-top: 5px;
-        border-radius: 5px;
-    }}
-    .item {{
-        padding: 8px;
-        border-bottom: 1px solid #ccc;
-    }}
-    a {{
-        text-decoration: none;
-        color: #333;
-    }}
-    a:hover {{
-        color: #007BFF;
-    }}
+    body {{ font-family: Arial, sans-serif; margin: 20px; background-color: #f8f9fa; }}
+    .header {{ text-align: center; margin-bottom: 20px; }}
+    .thumbnail {{ width: 120px; border-radius: 10px; }}
+    .collapsible {{ background-color: #007BFF; color: white; cursor: pointer; padding: 10px; width: 100%; border: none; text-align: left; outline: none; font-size: 16px; border-radius: 5px; margin-top: 10px; }}
+    .active, .collapsible:hover {{ background-color: #0056b3; }}
+    .content {{ padding: 0 18px; display: none; overflow: hidden; background-color: #f1f1f1; margin-top: 5px; border-radius: 5px; }}
+    .item {{ padding: 8px; border-bottom: 1px solid #ccc; }}
+    a {{ text-decoration: none; color: #333; }}
+    a:hover {{ color: #007BFF; }}
   </style>
 </head>
 <body>
@@ -133,14 +109,15 @@ def generate_html(json_data, original_name):
 """
     return html_template
 
-# ----------- Handlers ------------------
+# ========== HANDLER ================
 @bot.on_message(filters.document & filters.private)
 async def handle_json_file(client: Client, message: Message):
     doc = message.document
     if not doc.file_name.endswith(".json"):
-        await message.reply("Please send a valid `.json` file.")
+        await message.reply("❌ Please send a valid `.json` file.")
         return
 
+    os.makedirs("downloads", exist_ok=True)
     file_path = f"downloads/{sanitize_filename(doc.file_name)}"
     await message.download(file_path)
 
@@ -148,7 +125,7 @@ async def handle_json_file(client: Client, message: Message):
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        await message.reply(f"Failed to parse JSON: {e}")
+        await message.reply(f"❌ Failed to parse JSON: {e}")
         return
 
     base_name = Path(doc.file_name).stem
@@ -160,11 +137,16 @@ async def handle_json_file(client: Client, message: Message):
 
     await message.reply_document(
         document=output_file,
-        caption=f"Here is your structured HTML for **{base_name}**",
+        caption=f"✅ Structured HTML created for **{base_name}**",
     )
 
     os.remove(file_path)
     os.remove(output_file)
+
+# ========== START BOT ===============
+if __name__ == "__main__":
+    print("🤖 Bot is running...")
+    bot.run()
 
 # ------------- Start Bot ----------------
 if __name__ == "__main__":
