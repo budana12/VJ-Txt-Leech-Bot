@@ -12,7 +12,7 @@ API_ID = 21705536
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
 BOT_TOKEN = "7480080731:AAF_XoWPfbmRUtMSg7B1xDBtUdd8JpZXgP4"
 THUMBNAIL_URL = "https://i.postimg.cc/4N69wBLt/hat-hacker.webp"
-MONGO_URL = "mongodb+srv://engineersbabuxtract:ETxVh71rTNDpmHaj@cluster0.kofsig4.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+MONGO_URL = "mongodb://localhost:27017"
 ADMIN_IDS = [6203960005]  # Add your Telegram user ID here
 
 bot = Client("json_to_html_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -59,32 +59,69 @@ def json_to_collapsible_html(data):
                 html += recurse(item, depth)
         else:
             name, url = extract_name_url(str(obj))
+            link_type = 'other'
+            if url and 'video' in url:
+                link_type = 'video'
+            elif url and 'document' in url:
+                link_type = 'doc'
+
             if url:
-                html += f'<div class="item"><a href="{url}" target="_blank">{name}</a></div>\n'
+                html += f'<div class="item" data-type="{link_type}"><a href="{url}" target="_blank">{name}</a></div>\n'
             else:
-                html += f"<div class='item'>{name}</div>\n"
+                html += f"<div class='item' data-type='{link_type}'>{name}</div>\n"
         return html
     return recurse(data)
 
 def generate_html(data, title):
     display_title = title.replace("_", " ")
     content_html = json_to_collapsible_html(data)
+
+    # Adding clickable filters to show specific link types
+    filter_buttons = """
+    <div class="filter-buttons">
+        <button class="filter" onclick="filterLinks('all')">Show All</button>
+        <button class="filter" onclick="filterLinks('video')">Videos</button>
+        <button class="filter" onclick="filterLinks('doc')">Documents</button>
+        <button class="filter" onclick="filterLinks('other')">Other Links</button>
+    </div>
+    """
+
+    # Adding script to filter links based on type
+    script = """
+    <script>
+      function filterLinks(type) {
+        const allItems = document.querySelectorAll('.item');
+        allItems.forEach(item => {
+          const isVideo = item.dataset.type === 'video';
+          const isDoc = item.dataset.type === 'doc';
+          const isOther = item.dataset.type === 'other';
+
+          if (type === 'all') {
+            item.style.display = 'block';
+          } else if (type === 'video' && isVideo) {
+            item.style.display = 'block';
+          } else if (type === 'doc' && isDoc) {
+            item.style.display = 'block';
+          } else if (type === 'other' && isOther) {
+            item.style.display = 'block';
+          } else {
+            item.style.display = 'none';
+          }
+        });
+      }
+    </script>
+    """
+
     return f"""<!DOCTYPE html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-  <meta charset=\"UTF-8\">
+  <meta charset="UTF-8">
   <title>{display_title}</title>
   <style>
     body {{ font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; }}
-    .loader-container {{ position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0a0a0a; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; z-index: 9999; }}
-    .loading-text {{ font-size: 28px; font-weight: bold; margin-bottom: 20px; }}
-    .progress-bar {{ width: 300px; height: 20px; background: #444; border-radius: 10px; overflow: hidden; }}
-    .progress-bar-fill {{ width: 0%; height: 100%; background: linear-gradient(90deg, #ff6a00, #f20089); animation: loading 3s infinite; }}
-    @keyframes loading {{
-      0% {{ width: 0%; }}
-      50% {{ width: 100%; }}
-      100% {{ width: 0%; }}
-    }}
+    .filter-buttons {{ text-align: center; margin: 20px 0; }}
+    .filter {{ background-color: #007BFF; color: white; cursor: pointer; padding: 10px 20px; margin: 0 5px; border-radius: 5px; border: none; font-size: 16px; }}
+    .filter:hover {{ background-color: #0056b3; }}
     .container {{ max-width: 850px; margin: 20px auto; display: none; }}
     .header {{ display: flex; flex-wrap: wrap; justify-content: center; background: linear-gradient(135deg, #007BFF, #00C6FF); padding: 20px; border-radius: 15px; text-align: center; }}
     .thumbnail {{ width: 100px; border-radius: 10px; }}
@@ -102,21 +139,23 @@ def generate_html(data, title):
   </style>
 </head>
 <body>
-  <div class=\"loader-container\" id=\"loader\">
-    <div class=\"loading-text\">Welcome To Engineer's Babu</div>
-    <div class=\"progress-bar\"><div class=\"progress-bar-fill\"></div></div>
-    <div style=\"margin-top:10px;\">🛠 Your Content is preparing...</div>
+  <div class="loader-container" id="loader">
+    <div class="loading-text">Welcome To Engineer's Babu</div>
+    <div class="progress-bar"><div class="progress-bar-fill"></div></div>
+    <div style="margin-top:10px;">🛠 Your Content is preparing...</div>
   </div>
-  <div class=\"container\" id=\"main-content\">
-    <div class=\"header\">
-      <img class=\"thumbnail\" src=\"{THUMBNAIL_URL}\" alt=\"Thumbnail\">
+  <div class="container" id="main-content">
+    <div class="header">
+      <img class="thumbnail" src="{THUMBNAIL_URL}" alt="Thumbnail">
       <h1>{display_title}</h1>
     </div>
-    <div class=\"subheading\">📅 Extracted By : <a href=\"https://t.me/Engineersbabuhelpbot\" target=\"_blank\">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div>
-    <div class=\"datetime\" id=\"datetime\"></div>
-    <p class=\"bot-link\">♦️Use This Bot for JSON to HTML File Extraction : <a href=\"https://t.me/htmlextractorbot\" target=\"_blank\">@htmlextractorbot</a></p>
+    <div class="subheading">📅 Extracted By : <a href="https://t.me/Engineersbabuhelpbot" target="_blank">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div>
+    <div class="datetime" id="datetime"></div>
+    <p class="bot-link">♦️Use This Bot for JSON to HTML File Extraction : <a href="https://t.me/htmlextractorbot" target="_blank">@htmlextractorbot</a></p>
+    {filter_buttons}
     {content_html}
-    <div class=\"footer-strip\">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</div>
+    {script}
+    <div class="footer-strip">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</div>
   </div>
   <script>
     const updateDateTime = () => {
@@ -145,58 +184,22 @@ def generate_html(data, title):
 @bot.on_message(filters.document & filters.private)
 async def handle_json(client, message: Message):
     user_id = message.from_user.id
-    db.users.update_one({"_id": user_id}, {"$set": {"name": message.from_user.first_name}}, upsert=True)
+    db.users.update_one({"_id": user_id}, {"$set": {"last_activity": datetime.now()}}, upsert=True)
+    if message.document.mime_type == 'application/json':
+        file = await message.download()
+        with open(file, "r") as f:
+            json_data = json.load(f)
+        title = sanitize_filename(message.document.file_name)
+        html_content = generate_html(json_data, title)
+        file_name = f"{title}.html"
+        html_path = f"/tmp/{file_name}"
+        with open(html_path, "w") as f:
+            f.write(html_content)
+        
+        # Send HTML file back to the user
+        await message.reply_document(html_path, caption=f"📄 **HTML Generated:** `{file_name}`")
+        os.remove(file)
+        os.remove(html_path)
 
-    doc = message.document
-    if not doc.file_name.endswith(".json"):
-        return await message.reply("❌ Please send a `.json` file.")
-
-    os.makedirs("downloads", exist_ok=True)
-    path = f"downloads/{sanitize_filename(doc.file_name)}"
-    await message.download(path)
-
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except Exception as e:
-        return await message.reply(f"❌ Error reading JSON: {e}")
-
-    base_name = Path(doc.file_name).stem
-    html_code = generate_html(data, base_name)
-    output_path = f"downloads/{base_name}.html"
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(html_code)
-
-    await message.reply_document(
-        document=output_path,
-        caption=f"✅ HTML generated for **{base_name}**"
-    )
-
-    os.remove(path)
-    os.remove(output_path)
-
-@bot.on_message(filters.command("stats") & filters.user(ADMIN_IDS))
-async def stats_handler(client, message):
-    count = db.users.count_documents({})
-    await message.reply(f"📊 Total Users: **{count}**")
-
-@bot.on_message(filters.command("broadcast") & filters.user(ADMIN_IDS))
-async def broadcast_handler(client, message):
-    if not message.reply_to_message:
-        return await message.reply("❌ Reply to a message to broadcast.")
-
-    users = db.users.find()
-    success, failed = 0, 0
-    for user in users:
-        try:
-            await message.reply_to_message.copy(user["_id"])
-            success += 1
-        except:
-            failed += 1
-            await message.reply(f"✅ Broadcast Done\nSuccess: {success}\nFailed: {failed}")
-
-# ---------- Start Bot ----------
-if __name__ == "__main__":
-    print("🤖 Bot is running...")
-    bot.run()
+# --------- Start Bot ----------
+bot.run()
