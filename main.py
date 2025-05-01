@@ -123,7 +123,7 @@ def generate_html(json_data, original_name):
   <script>
     const collapsibles = document.getElementsByClassName("collapsible");
     for (let i = 0; i < collapsibles.length; i++) {
-      collapsibles[i].addEventListener("click", function () {
+        collapsibles[i].addEventListener("click", function() {
         this.classList.toggle("active");
         const content = this.nextElementSibling;
         content.style.display = content.style.display === "block" ? "none" : "block";
