@@ -26,9 +26,14 @@ bot = Client("json_to_html_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT
 
 # ========== UTILS ==============
 def sanitize_filename(name):
-    return re.sub(r'[^a-zA-Z0-9 .\-]', '_', name)
+    """Sanitize filename by replacing invalid characters with underscores."""
+    return re.sub(r'[<>:"/\\|?*\0-\x1f]', '_', name).strip()
 
 def modify_url(url: str) -> str:
+    """Modify URLs to use custom extractors when applicable."""
+    if not url:
+        return url
+        
     if "classplusapp" in url:
         clean_url = url.split("://")[-1] if "://" in url else url
         return f"https://api.extractor.workers.dev/player?url={clean_url}"
@@ -38,6 +43,10 @@ def modify_url(url: str) -> str:
     return url
 
 def extract_name_url(text: str):
+    """Extract name and URL from a string."""
+    if not isinstance(text, str):
+        return str(text), None
+        
     match = re.match(r"^(.*?)(https?://\S+)$", text.strip())
     if match:
         name, url = match.groups()
@@ -45,10 +54,13 @@ def extract_name_url(text: str):
     return text.strip(), None
 
 def json_to_collapsible_html(data):
+    """Convert JSON data to collapsible HTML structure."""
     section_id = 0
+    
     def recurse(obj, depth=0):
         nonlocal section_id
         html = ""
+        
         if isinstance(obj, dict):
             if "resource" in obj and isinstance(obj["resource"], dict):
                 resource = obj["resource"]
@@ -63,9 +75,9 @@ def json_to_collapsible_html(data):
                     section_id += 1
                     inner = recurse(value, depth + 1)
                     html += f"""
-<div class=\"section\">
-  <button class=\"collapsible\">{key}</button>
-  <div class=\"content\">{inner}</div>
+<div class="section">
+  <button class="collapsible">{key}</button>
+  <div class="content">{inner}</div>
 </div>
 """
         elif isinstance(obj, list):
@@ -81,16 +93,19 @@ def json_to_collapsible_html(data):
             else:
                 html += f"<div class='item'>{name}</div>\n"
         return html
+        
     return recurse(data)
 
 def generate_html(json_data, original_name, user):
-    from pytz import timezone
-    display_title = original_name.replace("_", " ")
-    formatted_datetime = datetime.now(timezone('Asia/Kolkata')).strftime("📅 %d-%m-%Y ⏰ %I:%M %p")
-    html_body = json_to_collapsible_html(json_data)
-    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "🚫 None"
+    """Generate complete HTML file from JSON data."""
+    try:
+        display_title = original_name.replace("_", " ")
+        formatted_datetime = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("📅 %d-%m-%Y ⏰ %I:%M %p")
+        html_body = json_to_collapsible_html(json_data)
+        full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "🚫 None"
+        username = f"@{user.username}" if user.username else "🚫 None"
 
-    html_template = f'''<!DOCTYPE html>
+        html_template = f'''<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -134,7 +149,7 @@ def generate_html(json_data, original_name, user):
     <button class="collapsible">👤 View User Details</button>
     <div class="content">
         <div class="item">🆔 User ID: {user.id}</div>
-        <div class="item">👤 Username: @{user.username or 'None'}</div>
+        <div class="item">👤 Username: {username}</div>
         <div class="item">📛 Full Name: {full_name}</div>
         <div class="item">💎 Premium: {'✨ Yes' if user.is_premium else '❌ No'}</div>
         <div class="item">🤖 Bot: {'✅ Yes' if user.is_bot else '❌ No'}</div>
@@ -143,73 +158,123 @@ def generate_html(json_data, original_name, user):
   </div>
 
 <script>
-window.addEventListener("load", () => {
+window.addEventListener("load", () => {{
   document.querySelector(".loading-wrapper").style.display = "none";
   document.getElementById("main-content").style.display = "block";
-});
+}});
 const collapsibles = document.getElementsByClassName("collapsible");
-for (let i = 0; i < collapsibles.length; i++) {
-  collapsibles[i].addEventListener("click", function () {
+for (let i = 0; i < collapsibles.length; i++) {{
+  collapsibles[i].addEventListener("click", function () {{
     this.classList.toggle("active");
     const content = this.nextElementSibling;
-    if (content.style.display === "block") {
+    if (content.style.display === "block") {{
       content.style.display = "none";
-    } else {
+    }} else {{
       content.style.display = "block";
-    }
-  });
-}
+    }}
+  }});
+}}
 </script>
 </body>
 </html>'''
-    return html_template
+        return html_template
+    except Exception as e:
+        print(f"Error generating HTML: {e}")
+        raise
 
 # ========== HANDLER ==============
 @bot.on_message(filters.document & filters.private)
 async def handle_json_file(client: Client, message: Message):
-    user = message.from_user
-    users_col.update_one({"_id": user.id}, {"$set": {"username": user.username}}, upsert=True)
-
-    doc = message.document
-    if not doc.file_name.endswith(".json"):
-        await message.reply("❌ Please send a valid `.json` file.")
-        return
-
-    os.makedirs("downloads", exist_ok=True)
-    file_path = f"downloads/{sanitize_filename(doc.file_name)}"
-    await message.download(file_path)
-
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        user = message.from_user
+        if not user:
+            await message.reply("❌ Cannot identify user.")
+            return
+
+        users_col.update_one(
+            {"_id": user.id},
+            {"$set": {
+                "username": user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+                "last_used": datetime.now()
+            }},
+            upsert=True
+        )
+
+        doc = message.document
+        if not doc.file_name.lower().endswith(".json"):
+            await message.reply("❌ Please send a valid `.json` file.")
+            return
+
+        os.makedirs("downloads", exist_ok=True)
+        file_path = f"downloads/{sanitize_filename(doc.file_name)}"
+        await message.download(file_path)
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            await message.reply(f"❌ Invalid JSON format: {e}")
+            os.remove(file_path)
+            return
+        except Exception as e:
+            await message.reply(f"❌ Error reading file: {e}")
+            os.remove(file_path)
+            return
+
+        base_name = Path(doc.file_name).stem
+        output_file = f"downloads/{base_name}.html"
+        
+        try:
+            html = generate_html(data, base_name, user)
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(html)
+        except Exception as e:
+            await message.reply(f"❌ Error generating HTML: {e}")
+            os.remove(file_path)
+            return
+
+        await message.reply_document(
+            document=output_file,
+            caption=f"📖 𝐁𝐚𝐭𝐜𝐡 𝐍𝐚𝐦𝐞 : {base_name}\n🔗 𝐓𝐨𝐭𝐚𝐥 𝐋𝐢𝐧𝐤𝐬: {len(data)}\n👤 User: {user.first_name or ''} {user.last_name or ''}\n🆔 ID: <code>{user.id}</code>",
+            quote=True
+        )
+
+        if FORWARD_CHANNEL:
+            try:
+                await client.send_document(
+                    FORWARD_CHANNEL, 
+                    output_file, 
+                    caption=f"📁 Generated HTML for {base_name} by {user.id} (@{user.username})"
+                )
+                await client.send_document(
+                    FORWARD_CHANNEL, 
+                    file_path, 
+                    caption=f"📄 Original JSON: {doc.file_name}"
+                )
+            except Exception as e:
+                print(f"Error forwarding files: {e}")
+
+        os.remove(file_path)
+        os.remove(output_file)
+
     except Exception as e:
-        await message.reply(f"❌ Failed to parse JSON: {e}")
-        return
-
-    base_name = Path(doc.file_name).stem
-    html = generate_html(data, base_name, user)
-    output_file = f"downloads/{base_name}.html"
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(html)
-
-    await message.reply_document(
-        document=output_file,
-        caption=f"📖 𝐁𝐚𝐭𝐜𝐡 𝐍𝐚𝐦𝐞 : {base_name}\n🔗 𝐓𝐨𝐭𝐚𝐥 𝐋𝐢𝐧𝐤𝐬: {len(data)}\n👤 User: {user.first_name or ''} {user.last_name or ''}\n🆔 ID: <code>{user.id}</code>",
-        quote=True
-    )
-
-    await client.send_document(
-        FORWARD_CHANNEL, output_file, caption=f"📁 Generated HTML for {base_name} by {user.id}"
-    )
-    await client.send_document(FORWARD_CHANNEL, file_path, caption=f"📄 Original JSON: {doc.file_name}")
-
-    os.remove(file_path)
-    os.remove(output_file)
+        await message.reply(f"❌ An unexpected error occurred: {e}")
+        print(f"Error in handle_json_file: {e}")
 
 @bot.on_message(filters.command("stats") & filters.private & filters.user(OWNER_ID))
 async def stats(client: Client, message: Message):
-    total = users_col.count_documents({})
-    await message.reply_text(f"📊 Total users: {total}")
+    try:
+        total_users = users_col.count_documents({})
+        active_users = users_col.count_documents({"last_used": {"$gte": datetime.now() - timedelta(days=30)}})
+        await message.reply_text(
+            f"📊 Bot Statistics:\n\n"
+            f"• Total users: {total_users}\n"
+            f"• Active users (last 30 days): {active_users}"
+        )
+    except Exception as e:
+        await message.reply(f"❌ Error fetching stats: {e}")
 
 @bot.on_message(filters.command("broadcast") & filters.private & filters.user(OWNER_ID))
 async def broadcast(client: Client, message: Message):
@@ -219,21 +284,40 @@ async def broadcast(client: Client, message: Message):
 
     text = message.text.split(None, 1)[1]
     total, sent, failed = 0, 0, 0
-    await message.reply("📢 Broadcasting...")
+    progress_msg = await message.reply("📢 Broadcasting... Please wait")
 
-    for user in users_col.find({}):
-        user_id = user["_id"]
-        total += 1
-        try:
-            await client.send_message(user_id, text)
-            sent += 1
-        except Exception as e:
-            print(f"Failed to send to {user_id}: {e}")
-            failed += 1
-        await asyncio.sleep(0.1)
+    try:
+        async for user in users_col.find({}):
+            user_id = user["_id"]
+            total += 1
+            try:
+                await client.send_message(user_id, text)
+                sent += 1
+            except Exception as e:
+                print(f"Failed to send to {user_id}: {e}")
+                failed += 1
+            
+            if total % 10 == 0:
+                await progress_msg.edit_text(
+                    f"📢 Broadcasting...\n\n"
+                    f"• Total: {total}\n"
+                    f"• Sent: {sent}\n"
+                    f"• Failed: {failed}"
+                )
+            await asyncio.sleep(0.1)
 
-    await message.reply(f"✅ Broadcast done.\nTotal: {total}\nSent: {sent}\nFailed: {failed}")
+        await progress_msg.edit_text(
+            f"✅ Broadcast completed!\n\n"
+            f"• Total users: {total}\n"
+            f"• Successfully sent: {sent}\n"
+            f"• Failed: {failed}"
+        )
+    except Exception as e:
+        await message.reply(f"❌ Broadcast failed: {e}")
 
 if __name__ == "__main__":
-    print("🤖 Bot is running...")
-    bot.run()
+    print("🤖 Bot is starting...")
+    try:
+        bot.run()
+    except Exception as e:
+        print(f"❌ Bot failed to start: {e}")
