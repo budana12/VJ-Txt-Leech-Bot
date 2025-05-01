@@ -69,8 +69,11 @@ def json_to_collapsible_html(data):
 </div>
 """
         elif isinstance(obj, list):
-            for item in obj:
-                html += recurse(item, depth)
+            if all(isinstance(i, (str, int, float)) for i in obj):
+                html += "<div class='item'>" + ", ".join(map(str, obj)) + "</div>\n"
+            else:
+                for item in obj:
+                    html += recurse(item, depth)
         else:
             name, url = extract_name_url(str(obj))
             if url:
@@ -87,11 +90,10 @@ def generate_html(json_data, original_name, user):
     html_body = json_to_collapsible_html(json_data)
     full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "🚫 None"
 
-    html_template = f"""
-<!DOCTYPE html>
-<html lang=\"en\">
+    html_template = f'''<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset=\"UTF-8\">
+  <meta charset="UTF-8">
   <title>{display_title}</title>
   <style>
     body {{ font-family: 'Segoe UI', sans-serif; margin: 0; background: #f3f3f3; }}
@@ -147,7 +149,7 @@ window.addEventListener("load", () => {
 });
 const collapsibles = document.getElementsByClassName("collapsible");
 for (let i = 0; i < collapsibles.length; i++) {
-  collapsibles[i].addEventListener("click", function() {
+  collapsibles[i].addEventListener("click", function () {
     this.classList.toggle("active");
     const content = this.nextElementSibling;
     if (content.style.display === "block") {
@@ -159,8 +161,7 @@ for (let i = 0; i < collapsibles.length; i++) {
 }
 </script>
 </body>
-</html>
-"""
+</html>'''
     return html_template
 
 # ========== HANDLER ==============
