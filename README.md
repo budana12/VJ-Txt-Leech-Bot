@@ -1,3 +1,6 @@
+## PRESS HEKOKU TO DEPLOY
+[![Deploy To Heroku](https://www.herokucdn.com/deploy/button.svg)](https://dashboard.heroku.com/new?button-url=https://github.com/xpingpongx/Extractor-V3&template=https://github.com/CombodianHero/VJ-Txt-Leech-Bot)
+
 <p align="center">
   <img src="https://graph.org/file/d57d6f83abb6b8d0efb02.jpg" alt="VJ-TXT-LEECH-BOT Logo">
 </p>
