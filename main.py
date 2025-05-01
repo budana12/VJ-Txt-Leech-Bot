@@ -6,7 +6,7 @@ from pyrogram.types import Message
 from pathlib import Path
 from datetime import datetime
 
-# ------------- Bot Config ----------------
+# --------- Bot Config ----------
 API_ID = 21705536
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
 BOT_TOKEN = "7480080731:AAF_XoWPfbmRUtMSg7B1xDBtUdd8JpZXgP4"
@@ -14,20 +14,20 @@ THUMBNAIL_URL = "https://i.postimg.cc/4N69wBLt/hat-hacker.webp"
 
 bot = Client("json_to_html_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# ========== UTILS ===============
+# ---------- Utilities ----------
 def sanitize_filename(name):
     return re.sub(r'[^a-zA-Z0-9 .\-]', '_', name)
 
-def modify_url(url: str) -> str:
+def modify_url(url):
     if "classplusapp" in url:
-        clean_url = url.split("://")[-1] if "://" in url else url
-        return f"https://api.extractor.workers.dev/player?url={clean_url}"
-    elif "/master.mpd" in url:
-        vid_id = url.split("/")[-2]
-        return f"https://player.muftukmall.site/?id={vid_id}"
+        url = url.split("://")[-1] if "://" in url else url
+        return f"https://api.extractor.workers.dev/player?url={url}"
+    if "/master.mpd" in url:
+        vid = url.split("/")[-2]
+        return f"https://player.muftukmall.site/?id={vid}"
     return url
 
-def extract_name_url(text: str):
+def extract_name_url(text):
     match = re.match(r"^(.*?)(https?://\S+)$", text.strip())
     if match:
         name, url = match.groups()
@@ -36,7 +36,6 @@ def extract_name_url(text: str):
 
 def json_to_collapsible_html(data):
     section_id = 0
-
     def recurse(obj, depth=0):
         nonlocal section_id
         html = ""
@@ -45,9 +44,9 @@ def json_to_collapsible_html(data):
                 section_id += 1
                 inner = recurse(value, depth + 1)
                 html += f"""
-<div class=\"section\">
-  <button class=\"collapsible\">{key}</button>
-  <div class=\"content\">{inner}</div>
+<div class="section">
+  <button class="collapsible">{key}</button>
+  <div class="content">{inner}</div>
 </div>
 """
         elif isinstance(obj, list):
@@ -60,16 +59,14 @@ def json_to_collapsible_html(data):
             else:
                 html += f"<div class='item'>{name}</div>\n"
         return html
-
     return recurse(data)
 
-def generate_html(json_data, original_name):
-    display_title = original_name.replace("_", " ")
-    formatted_datetime = datetime.now().strftime("%d-%m-%Y %I:%M %p")
-    html_body = json_to_collapsible_html(json_data)
+def generate_html(data, title):
+    display_title = title.replace("_", " ")
+    timestamp = datetime.now().strftime("%d-%m-%Y %I:%M %p")
+    content_html = json_to_collapsible_html(data)
 
-    html_template = f"""
-<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -93,8 +90,8 @@ def generate_html(json_data, original_name):
       z-index: 9999;
     }}
     .container {{
-      width: 100%;
-      margin: 20px 100px;
+      width: 1080px;
+      margin: 20px auto;
       display: none;
     }}
     .header {{
@@ -166,9 +163,9 @@ def generate_html(json_data, original_name):
       <h1>{display_title}</h1>
     </div>
     <div class="subheading">📥 Extracted By : <a href="https://t.me/Engineersbabuhelpbot" target="_blank">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div><br>
-    <div class="datetime" id="datetime">{formatted_datetime}</div><br>
+    <div class="datetime" id="datetime">{timestamp}</div><br>
     <p>🔹Use This Bot for TXT to HTML File Extraction : <a href="https://t.me/htmldeveloperbot" target="_blank">@htmldeveloperbot</a></p>
-    {html_body}
+    {content_html}
     <div class="footer-strip">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</div>
   </div>
   <script>
@@ -181,54 +178,46 @@ def generate_html(json_data, original_name):
       collapsibles[i].addEventListener("click", function() {{
         this.classList.toggle("active");
         const content = this.nextElementSibling;
-        if (content.style.display === "block") {{
-          content.style.display = "none";
-        }} else {{
-          content.style.display = "block";
-        }}
+        content.style.display = content.style.display === "block" ? "none" : "block";
       }});
     }}
   </script>
 </body>
-</html>
-"""
-    return html_template
+</html>"""
 
-# ========== HANDLER ================
+# ---------- Handler ----------
 @bot.on_message(filters.document & filters.private)
-async def handle_json_file(client: Client, message: Message):
+async def handle_json(client, message: Message):
     doc = message.document
     if not doc.file_name.endswith(".json"):
-        await message.reply("❌ Please send a valid `.json` file.")
-        return
+        return await message.reply("❌ Please send a `.json` file.")
 
     os.makedirs("downloads", exist_ok=True)
-    file_path = f"downloads/{sanitize_filename(doc.file_name)}"
-    await message.download(file_path)
+    path = f"downloads/{sanitize_filename(doc.file_name)}"
+    await message.download(path)
 
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        await message.reply(f"❌ Failed to parse JSON: {e}")
-        return
+        return await message.reply(f"❌ Error reading JSON: {e}")
 
     base_name = Path(doc.file_name).stem
-    html = generate_html(data, base_name)
-    output_file = f"downloads/{base_name}.html"
+    html_code = generate_html(data, base_name)
+    output_path = f"downloads/{base_name}.html"
 
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(html)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html_code)
 
     await message.reply_document(
-        document=output_file,
-        caption=f"✅ Structured HTML created for **{base_name}**",
+        document=output_path,
+        caption=f"✅ HTML generated for **{base_name}**"
     )
 
-    os.remove(file_path)
-    os.remove(output_file)
+    os.remove(path)
+    os.remove(output_path)
 
-# ========== START BOT ===============
+# ---------- Start Bot ----------
 if __name__ == "__main__":
     print("🤖 Bot is running...")
     bot.run()
