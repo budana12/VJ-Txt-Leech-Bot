@@ -1,0 +1,25 @@
+
+{
+    "name": "Repo",
+    "description": "APPX Without Purchase Repo",
+    "repository": "https://github.com/",
+    "keywords": [
+        "telegram bot",
+        "pyrogram"
+    ],
+    "env": {
+        "API_ID":{
+            "description": "Get your telegram API ID from https://my.telegram.org",
+            "value":"21705536"
+        },
+        "API_HASH":{
+            "description":"Get your telegram API HASH from https://my.telegram.org",
+		    "value":"c5bb241f6e3ecf33fe68a444e288de2d"
+        },
+        "BOT_TOKEN":{
+            "description":"Get from BotFather",
+            "value":"7480080731:AAFyt61u6Zz5xXnJU5Sqt4x3_1aR7KaGogc"
+        }
+    }
+
+}
