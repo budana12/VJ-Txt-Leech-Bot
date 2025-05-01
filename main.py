@@ -10,7 +10,7 @@ from pymongo import MongoClient
 import logging
 import asyncio
 import pytz
-from templates.html_template import generate_html
+from html_template import generate_html
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
