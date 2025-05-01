@@ -11,7 +11,7 @@ from pyrogram.types import Message
 # --------- Bot Config ----------
 API_ID = 21705536
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
-BOT_TOKEN = "7480080731:AAF_XoWPfbmRUtMSg7B1xDBtUdd8JpZXgP4"
+BOT_TOKEN = "7480080731:AAFyt61u6Zz5xXnJU5Sqt4x3_1aR7KaGogc"
 THUMBNAIL_URL = "https://i.postimg.cc/4N69wBLt/hat-hacker.webp"
 ADMIN_ID = 1147534909  # Replace with your Telegram user ID
 
