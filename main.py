@@ -1,69 +1,43 @@
 import os
 import re
 import json
-import asyncio
-from datetime import datetime
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from pymongo import MongoClient
 from pathlib import Path
-import pytz
+from datetime import datetime
+from pymongo import MongoClient
 
-# ========== BOT CONFIG ==============
+# --------- Bot Config ----------
 API_ID = 21705536
 API_HASH = "c5bb241f6e3ecf33fe68a444e288de2d"
 BOT_TOKEN = "7480080731:AAF_XoWPfbmRUtMSg7B1xDBtUdd8JpZXgP4"
-OWNER_ID = 5021644377
 THUMBNAIL_URL = "https://i.postimg.cc/4N69wBLt/hat-hacker.webp"
-FORWARD_CHANNEL = "@kuvnypkyjk"
-
-MONGO_URI = "mongodb+srv://engineersbabuxtract:ETxVh71rTNDpmHaj@cluster0.kofsig4.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-mongo_client = MongoClient(MONGO_URI)
-db = mongo_client["json_to_html_bot"]
-users_col = db["users"]
+MONGO_URL = "mongodb+srv://engineersbabuxtract:ETxVh71rTNDpmHaj@cluster0.kofsig4.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+ADMIN_IDS = [6203960005]  # Add your Telegram user ID here
 
 bot = Client("json_to_html_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+mongo = MongoClient(MONGO_URL)
+db = mongo.json_to_html
 
-# ========== UTILS ==============
+# ---------- Utilities ----------
 def sanitize_filename(name):
     return re.sub(r'[^a-zA-Z0-9 .\-]', '_', name)
 
-def modify_url(url: str) -> str:
+def modify_url(url):
     if "classplusapp" in url:
-        clean_url = url.split("://")[-1] if "://" in url else url
-        return f"https://api.extractor.workers.dev/player?url={clean_url}"
-    elif "/master.mpd" in url:
-        vid_id = url.split("/")[-2]
-        return f"https://player.muftukmall.site/?id={vid_id}"
+        url = url.split("://")[-1] if "://" in url else url
+        return f"https://api.extractor.workers.dev/player?url={url}"
+    if "/master.mpd" in url:
+        vid = url.split("/")[-2]
+        return f"https://player.muftukmall.site/?id={vid}"
     return url
 
-def extract_name_url(text: str):
+def extract_name_url(text):
     match = re.match(r"^(.*?)(https?://\S+)$", text.strip())
     if match:
         name, url = match.groups()
         return name.strip(" :"), modify_url(url.strip())
     return text.strip(), None
-
-def count_links(obj):
-    counts = {"video": 0, "document": 0, "other": 0}
-    def recurse(o):
-        if isinstance(o, dict):
-            if "resource" in o and isinstance(o["resource"], dict):
-                url = o["resource"].get("url", "")
-                if url:
-                    if url.endswith(".mp4") or "classplusapp" in url or "/master.mpd" in url:
-                        counts["video"] += 1
-                    elif any(url.endswith(ext) for ext in [".pdf", ".docx", ".pptx"]):
-                        counts["document"] += 1
-                    else:
-                        counts["other"] += 1
-            for v in o.values():
-                recurse(v)
-        elif isinstance(o, list):
-            for item in o:
-                recurse(item)
-    recurse(obj)
-    return counts
 
 def json_to_collapsible_html(data):
     section_id = 0
@@ -71,31 +45,18 @@ def json_to_collapsible_html(data):
         nonlocal section_id
         html = ""
         if isinstance(obj, dict):
-            if "resource" in obj and isinstance(obj["resource"], dict):
-                resource = obj["resource"]
-                title = resource.get("title", "Untitled")
-                url = resource.get("url")
-                if url:
-                    html += f'<div class="item"><a href="{modify_url(url)}" target="_blank">{title}</a></div>\n'
-                else:
-                    html += f"<div class='item'>{title}</div>\n"
-            else:
-                for key, value in obj.items():
-                    section_id += 1
-                    inner_html = recurse(value, depth + 1)
-                    inner_count = inner_html.count('<div class="item">')
-                    html += f"""
+            for key, value in obj.items():
+                section_id += 1
+                inner = recurse(value, depth + 1)
+                html += f"""
 <div class=\"section\">
-  <button class=\"collapsible\">{key} ({inner_count})</button>
-  <div class=\"content\">{inner_html}</div>
+  <button class=\"collapsible\">{key}</button>
+  <div class=\"content\">{inner}</div>
 </div>
 """
         elif isinstance(obj, list):
-            if all(isinstance(i, (str, int, float)) for i in obj):
-                html += "<div class='item'>" + ", ".join(map(str, obj)) + "</div>\n"
-            else:
-                for item in obj:
-                    html += recurse(item, depth)
+            for item in obj:
+                html += recurse(item, depth)
         else:
             name, url = extract_name_url(str(obj))
             if url:
@@ -105,165 +66,138 @@ def json_to_collapsible_html(data):
         return html
     return recurse(data)
 
-def generate_html(json_data, original_name, user):
-    from pytz import timezone
-    display_title = original_name.replace("_", " ")
-    formatted_datetime = datetime.now(timezone('Asia/Kolkata')).strftime("📅 %d-%m-%Y ⏰ %I:%M %p")
-    html_body = json_to_collapsible_html(json_data)
-    full_name = f"{user.first_name or ''} {user.last_name or ''}".strip() or "🚫 None"
-    link_counts = count_links(json_data)
-    video, document, other = link_counts['video'], link_counts['document'], link_counts['other']
-
-    html_template = f'''<!DOCTYPE html>
-<html lang="en">
+def generate_html(data, title):
+    display_title = title.replace("_", " ")
+    content_html = json_to_collapsible_html(data)
+    return f"""<!DOCTYPE html>
+<html lang=\"en\">
 <head>
-  <meta charset="UTF-8">
+  <meta charset=\"UTF-8\">
   <title>{display_title}</title>
   <style>
-    body {{ font-family: 'Segoe UI', sans-serif; margin: 0; background: #f3f3f3; }}
-    .container {{ width: 800px; margin: 30px auto; }}
-    .loading-wrapper {{ text-align: center; padding: 20px; background: #000; color: #fff; }}
-    .loading-text {{ font-size: 24px; font-weight: bold; margin-bottom: 10px; }}
-    .progress-bar {{ background: #444; border-radius: 20px; height: 20px; overflow: hidden; }}
-    .progress-bar-fill {{ height: 100%; width: 100%; background: linear-gradient(90deg, red, orange, yellow, green, blue, indigo, violet); animation: load 3s ease-in-out infinite; }}
-    @keyframes load {{ 0% {{width: 0;}} 100% {{width: 100%;}} }}
-    .header {{ text-align: center; background: linear-gradient(135deg, #007BFF, #00C6FF); padding: 20px; border-radius: 15px; color: white; }}
-    .thumbnail {{ width: 120px; border-radius: 10px; }}
-    .collapsible {{ background-color: #007BFF; color: white; cursor: pointer; padding: 10px; width: 100%; border: none; outline: none; font-size: 16px; border-radius: 5px; margin-top: 10px; }}
+    body {{ font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; }}
+    .loader-container {{ position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0a0a0a; display: flex; flex-direction: column; justify-content: center; align-items: center; color: white; z-index: 9999; }}
+    .loading-text {{ font-size: 28px; font-weight: bold; margin-bottom: 20px; }}
+    .progress-bar {{ width: 300px; height: 20px; background: #444; border-radius: 10px; overflow: hidden; }}
+    .progress-bar-fill {{ width: 0%; height: 100%; background: linear-gradient(90deg, #ff6a00, #f20089); animation: loading 3s infinite; }}
+    @keyframes loading {{
+      0% {{ width: 0%; }}
+      50% {{ width: 100%; }}
+      100% {{ width: 0%; }}
+    }}
+    .container {{ max-width: 850px; margin: 20px auto; display: none; }}
+    .header {{ display: flex; flex-wrap: wrap; justify-content: center; background: linear-gradient(135deg, #007BFF, #00C6FF); padding: 20px; border-radius: 15px; text-align: center; }}
+    .thumbnail {{ width: 100px; border-radius: 10px; }}
+    h1 {{ margin: 0; color: #fff; flex: 1 1 100%; }}
+    .subheading, .datetime, .bot-link {{ text-align: center; font-weight: bold; margin: 10px 0; }}
+    .datetime {{ color: #666; }}
+    .collapsible {{ background-color: #007BFF; color: white; cursor: pointer; padding: 10px; width: 100%; border: none; text-align: center; outline: none; font-size: 16px; border-radius: 5px; margin-top: 10px; }}
     .active, .collapsible:hover {{ background-color: #0056b3; }}
-    .content {{ padding: 10px 18px; display: none; overflow: hidden; background-color: #fff; border-radius: 5px; }}
+    .content {{ padding: 10px 18px; display: none; background-color: #ffffff; margin-top: 5px; border-radius: 5px; }}
     .section {{ border: 1px solid #ddd; border-radius: 4px; margin-bottom: 8px; padding: 5px; }}
     .item {{ padding: 8px; border-bottom: 1px solid #ccc; text-align: center; }}
+    a {{ text-decoration: none; color: #333; }}
+    a:hover {{ color: #007BFF; }}
     .footer-strip {{ margin-top: 40px; padding: 10px; text-align: center; background: linear-gradient(to right, #ff6a00, #ee0979); color: white; font-weight: bold; border-radius: 8px; }}
-    p, .datetime {{ text-align: center; }}
   </style>
 </head>
 <body>
-  <div class="loading-wrapper">
-    <div class="loading-text">Welcome To Engineer's Babu</div>
-    <div class="progress-bar">
-        <div class="progress-bar-fill"></div>
-    </div>
-    <div>Your Content is preparing...</div>
+  <div class=\"loader-container\" id=\"loader\">
+    <div class=\"loading-text\">Welcome To Engineer's Babu</div>
+    <div class=\"progress-bar\"><div class=\"progress-bar-fill\"></div></div>
+    <div style=\"margin-top:10px;\">🛠 Your Content is preparing...</div>
   </div>
-
-  <div class="container" id="main-content" style="display:none">
-    <div class="header">
-      <img class="thumbnail" src="{THUMBNAIL_URL}" alt="Thumbnail">
+  <div class=\"container\" id=\"main-content\">
+    <div class=\"header\">
+      <img class=\"thumbnail\" src=\"{THUMBNAIL_URL}\" alt=\"Thumbnail\">
       <h1>{display_title}</h1>
     </div>
-    <p class="datetime">{formatted_datetime} (IST)</p>
-    <p>♦️Use This Bot for JSON to HTML File Extraction : <a href="https://t.me/htmlextractorbot" target="_blank">@htmlextractorbot</a></p>
-    {html_body}
-    <button class="collapsible">👤 View User Details</button>
-    <div class="content">
-        <div class="item">🆔 User ID: {user.id}</div>
-        <div class="item">👤 Username: @{user.username or 'None'}</div>
-        <div class="item">📛 Full Name: {full_name}</div>
-        <div class="item">💎 Premium: {'✨ Yes' if user.is_premium else '❌ No'}</div>
-        <div class="item">🤖 Bot: {'✅ Yes' if user.is_bot else '❌ No'}</div>
-    </div>
-    <div class="footer-strip">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™ | 🎥 Videos: {video} 📄 Docs: {document} 🔗 Others: {other}</div>
+    <div class=\"subheading\">📅 Extracted By : <a href=\"https://t.me/Engineersbabuhelpbot\" target=\"_blank\">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</a></div>
+    <div class=\"datetime\" id=\"datetime\"></div>
+    <p class=\"bot-link\">♦️Use This Bot for JSON to HTML File Extraction : <a href=\"https://t.me/htmlextractorbot\" target=\"_blank\">@htmlextractorbot</a></p>
+    {content_html}
+    <div class=\"footer-strip\">𝕰𝖓𝖌𝖎𝖓𝖊𝖊𝖗𝖘 𝕭𝖆𝖇𝖚™</div>
   </div>
-
-<script>
-window.addEventListener("load", () => {
-  document.querySelector(".loading-wrapper").style.display = "none";
-  document.getElementById("main-content").style.display = "block";
-});
-const collapsibles = document.getElementsByClassName("collapsible");
-for (let i = 0; i < collapsibles.length; i++) {
-  collapsibles[i].addEventListener("click", function () {
-    this.classList.toggle("active");
-    const content = this.nextElementSibling;
-    if (content.style.display === "block") {
-      content.style.display = "none";
-    } else {
-      content.style.display = "block";
+  <script>
+    const updateDateTime = () => {
+      const dt = new Date();
+      document.getElementById("datetime").innerText = `📆 ${dt.toLocaleDateString()} ⏰ ${dt.toLocaleTimeString()}`;
+    };
+    window.addEventListener("load", () => {
+      document.getElementById("loader").style.display = "none";
+      document.getElementById("main-content").style.display = "block";
+      updateDateTime();
+      setInterval(updateDateTime, 1000);
+    });
+    const collapsibles = document.getElementsByClassName("collapsible");
+    for (let i = 0; i < collapsibles.length; i++) {
+      collapsibles[i].addEventListener("click", function () {
+        this.classList.toggle("active");
+        const content = this.nextElementSibling;
+        content.style.display = content.style.display === "block" ? "none" : "block";
+      });
     }
-  });
-}
-</script>
+  </script>
 </body>
-</html>'''
-    return html_template
+</html>"""
 
-# ========== HANDLER ==============
+# ---------- Handlers ----------
 @bot.on_message(filters.document & filters.private)
-async def handle_json_file(client: Client, message: Message):
-    user = message.from_user
-    users_col.update_one({"_id": user.id}, {"$set": {"username": user.username}}, upsert=True)
+async def handle_json(client, message: Message):
+    user_id = message.from_user.id
+    db.users.update_one({"_id": user_id}, {"$set": {"name": message.from_user.first_name}}, upsert=True)
 
     doc = message.document
     if not doc.file_name.endswith(".json"):
-        await message.reply("❌ Please send a valid `.json` file.")
-        return
+        return await message.reply("❌ Please send a `.json` file.")
 
     os.makedirs("downloads", exist_ok=True)
-    file_path = f"downloads/{sanitize_filename(doc.file_name)}"
-    await message.download(file_path)
+    path = f"downloads/{sanitize_filename(doc.file_name)}"
+    await message.download(path)
 
     try:
-        with open(file_path, "r", encoding="utf-8") as f:
+        with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        await message.reply(f"❌ Failed to parse JSON: {e}")
-        return
+        return await message.reply(f"❌ Error reading JSON: {e}")
 
     base_name = Path(doc.file_name).stem
-    html = generate_html(data, base_name, user)
-    output_file = f"downloads/{base_name}.html"
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(html)
+    html_code = generate_html(data, base_name)
+    output_path = f"downloads/{base_name}.html"
 
-    link_counts = count_links(data)
-    caption = f"""📖 𝐁𝐚𝐭𝐜𝐡 𝐍𝐚𝐦𝐞 : {base_name}
-🎥 𝐕𝐢𝐝𝐞𝐨𝐬: {link_counts['video']} | 📄 𝐃𝐨𝐜𝐬: {link_counts['document']} | 🔗 𝐎𝐭𝐡𝐞𝐫𝐬: {link_counts['other']}
-👤 User: {user.first_name or ''} {user.last_name or ''}
-🆔 ID: <code>{user.id}</code>"""
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html_code)
 
     await message.reply_document(
-        document=output_file,
-        caption=caption,
-        quote=True
+        document=output_path,
+        caption=f"✅ HTML generated for **{base_name}**"
     )
 
-    await client.send_document(
-        FORWARD_CHANNEL, output_file, caption=f"📁 Generated HTML for {base_name} by {user.id}"
-    )
-    await client.send_document(FORWARD_CHANNEL, file_path, caption=f"📄 Original JSON: {doc.file_name}")
+    os.remove(path)
+    os.remove(output_path)
 
-    os.remove(file_path)
-    os.remove(output_file)
+@bot.on_message(filters.command("stats") & filters.user(ADMIN_IDS))
+async def stats_handler(client, message):
+    count = db.users.count_documents({})
+    await message.reply(f"📊 Total Users: **{count}**")
 
-@bot.on_message(filters.command("stats") & filters.private & filters.user(OWNER_ID))
-async def stats(client: Client, message: Message):
-    total = users_col.count_documents({})
-    await message.reply_text(f"📊 Total users: {total}")
+@bot.on_message(filters.command("broadcast") & filters.user(ADMIN_IDS))
+async def broadcast_handler(client, message):
+    if not message.reply_to_message:
+        return await message.reply("❌ Reply to a message to broadcast.")
 
-@bot.on_message(filters.command("broadcast") & filters.private & filters.user(OWNER_ID))
-async def broadcast(client: Client, message: Message):
-    if len(message.command) < 2:
-        await message.reply("Usage: /broadcast <message>")
-        return
-
-    text = message.text.split(None, 1)[1]
-    total, sent, failed = 0, 0, 0
-    await message.reply("📢 Broadcasting...")
-
-    for user in users_col.find({}):
-        user_id = user["_id"]
-        total += 1
+    users = db.users.find()
+    success, failed = 0, 0
+    for user in users:
         try:
-            await client.send_message(user_id, text)
-            sent += 1
-        except Exception as e:
-            print(f"Failed to send to {user_id}: {e}")
+            await message.reply_to_message.copy(user["_id"])
+            success += 1
+        except:
             failed += 1
-        await asyncio.sleep(0.1)
+    await message.reply(f"✅ Broadcast Done\n
+Success: {success}\nFailed: {failed}")
 
-    await message.reply(f"✅ Broadcast done.\nTotal: {total}\nSent: {sent}\nFailed: {failed}")
-
+# ---------- Start Bot ----------
 if __name__ == "__main__":
     print("🤖 Bot is running...")
     bot.run()
