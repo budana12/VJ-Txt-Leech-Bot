@@ -50,10 +50,19 @@ def json_to_collapsible_html(data):
         nonlocal section_id
         html = ""
         if isinstance(obj, dict):
-            for key, value in obj.items():
-                section_id += 1
-                inner = recurse(value, depth + 1)
-                html += f"""
+            if "resource" in obj and isinstance(obj["resource"], dict):
+                resource = obj["resource"]
+                title = resource.get("title", "Untitled")
+                url = resource.get("url")
+                if url:
+                    html += f'<div class="item"><a href="{modify_url(url)}" target="_blank">{title}</a></div>\n'
+                else:
+                    html += f"<div class='item'>{title}</div>\n"
+            else:
+                for key, value in obj.items():
+                    section_id += 1
+                    inner = recurse(value, depth + 1)
+                    html += f"""
 <div class=\"section\">
   <button class=\"collapsible\">{key}</button>
   <div class=\"content\">{inner}</div>
@@ -112,12 +121,12 @@ def generate_html(json_data, original_name, user):
     <div>Your Content is preparing...</div>
   </div>
 
-  <div class="container" id="main-content">
+  <div class="container" id="main-content" style="display:none">
     <div class="header">
       <img class="thumbnail" src="{THUMBNAIL_URL}" alt="Thumbnail">
       <h1>{display_title}</h1>
     </div>
-    <p class="datetime">{formatted_datetime}</p>
+    <p class="datetime">{formatted_datetime} (IST)</p>
     <p>♦️Use This Bot for JSON to HTML File Extraction : <a href="https://t.me/htmlextractorbot" target="_blank">@htmlextractorbot</a></p>
     {html_body}
     <button class="collapsible">👤 View User Details</button>
