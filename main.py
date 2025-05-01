@@ -194,8 +194,7 @@ async def broadcast_handler(client, message):
             success += 1
         except:
             failed += 1
-    await message.reply(f"✅ Broadcast Done\n
-Success: {success}\nFailed: {failed}")
+            await message.reply(f"✅ Broadcast Done\nSuccess: {success}\nFailed: {failed}")
 
 # ---------- Start Bot ----------
 if __name__ == "__main__":
